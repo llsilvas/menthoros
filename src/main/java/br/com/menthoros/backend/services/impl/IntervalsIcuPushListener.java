@@ -90,6 +90,7 @@ public class IntervalsIcuPushListener {
         }
         List<TreinoPlanejado> treinos = treinoPlanejadoRepository.findAllByPlanoSemanalIdAndTenantId(planoId, tenantId);
         if (treinos.isEmpty()) {
+            log.warn("Push intervals.icu abortado: plano {} não tem treinos planejados no tenant {}", planoId, tenantId);
             return;
         }
 
