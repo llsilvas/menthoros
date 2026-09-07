@@ -146,6 +146,16 @@ app:
 
 
   # ----------------------------------------
+  # CONVITE DE ATLETA (por token do backend)
+  # ----------------------------------------
+  athlete-invite:
+    # Validade do link. Reenvio gera token novo e invalida o anterior.
+    validity-days: ${ATHLETE_INVITE_VALIDITY_DAYS:7}
+    rate-limit:
+      # GET publico de consulta do convite, por IP, no PublicEndpointRateLimitFilter.
+      per-minute: ${FOUNDING_INVITE_LOOKUP_RATE_PER_MINUTE:10}
+
+  # ----------------------------------------
   # E-MAIL TRANSACIONAL DO BACKEND
   # ----------------------------------------
   # Remetente e outbox. Credenciais SMTP ficam em spring.mail.* (perfis cloud/dev), lidas de
@@ -162,13 +172,6 @@ app:
   founding-invite:
     # Validade do link. Reenvio gera token novo e invalida o anterior.
     validity-days: ${FOUNDING_INVITE_VALIDITY_DAYS:7}
-
-  # ----------------------------------------
-  # CONVITE DE ATLETA (por token do backend)
-  # ----------------------------------------
-  athlete-invite:
-    # Validade do link. Reenvio gera token novo e invalida o anterior.
-    validity-days: ${ATHLETE_INVITE_VALIDITY_DAYS:7}
     rate-limit:
       # GET publico de consulta do convite, por IP, no PublicEndpointRateLimitFilter.
       per-minute: ${FOUNDING_INVITE_LOOKUP_RATE_PER_MINUTE:10}
