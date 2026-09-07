@@ -105,6 +105,20 @@ class IntervalsIcuPushListenerTest {
         }
 
         @Test
+        @DisplayName("plano sem treinos planejados retorna sem tocar no processor nem no workoutChannel")
+        void planoSemTreinosNaoTocaProcessorNemChannel() {
+            PlanoSemanal plano = planoCom(LocalDate.now(), LocalDate.now().plusDays(6));
+
+            mocarConexaoEPlano(plano);
+            when(treinoPlanejadoRepository.findAllByPlanoSemanalIdAndTenantId(planoId, tenantId))
+                    .thenReturn(java.util.List.of());
+
+            listener.onPlanoAprovado(event);
+
+            verifyNoInteractions(workoutChannel, pushProcessor, integracaoExternaRepository);
+        }
+
+        @Test
         @DisplayName("lote de 2 treinos com sucesso: processor chamado por treino, set de órfãos com os "
                 + "externalIds canônicos, ultimaSincronizacao gravada")
         void loteDoisTreinosSucesso() {
