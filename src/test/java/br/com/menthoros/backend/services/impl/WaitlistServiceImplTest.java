@@ -124,7 +124,7 @@ class WaitlistServiceImplTest {
         @Test
         @DisplayName("e-mail em branco lança IllegalArgumentException")
         void emailEmBrancoLanca() {
-            WaitlistInputDto dto = new WaitlistInputDto("Maria", "   ", null, PerfilWaitlist.ATLETA, null, true, null);
+            WaitlistInputDto dto = new WaitlistInputDto("Maria", "   ", null, PerfilWaitlist.ATLETA, null, true, null, null, null, null, null);
             assertThatThrownBy(() -> waitlistService.registrar(dto))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("E-mail");
@@ -134,15 +134,54 @@ class WaitlistServiceImplTest {
         @Test
         @DisplayName("nome em branco lança IllegalArgumentException")
         void nomeEmBrancoLanca() {
-            WaitlistInputDto dto = new WaitlistInputDto("  ", "joao@exemplo.com", null, PerfilWaitlist.ATLETA, null, true, null);
+            WaitlistInputDto dto = new WaitlistInputDto("  ", "joao@exemplo.com", null, PerfilWaitlist.ATLETA, null, true, null, null, null, null, null);
             assertThatThrownBy(() -> waitlistService.registrar(dto))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Nome");
             verify(waitlistRepository, never()).saveAndFlush(any());
         }
+
+        @Test
+        @DisplayName("grava os 4 campos UTM quando enviados")
+        void gravaUtmQuandoEnviado() {
+            when(waitlistRepository.existsByEmailNormalized("maria@exemplo.com")).thenReturn(false);
+            when(waitlistRepository.saveAndFlush(any(Waitlist.class))).thenAnswer(inv -> inv.getArgument(0));
+            ArgumentCaptor<Waitlist> captor = ArgumentCaptor.forClass(Waitlist.class);
+
+            WaitlistInputDto dto = new WaitlistInputDto("Maria Treinadora", "maria@exemplo.com", null,
+                    PerfilWaitlist.TREINADOR, FaixaAtletas.DE_11_A_30, true, null,
+                    "instagram", "social", "turma-fundadora", "bio-link");
+
+            waitlistService.registrar(dto);
+
+            verify(waitlistRepository).saveAndFlush(captor.capture());
+            Waitlist salvo = captor.getValue();
+            assertThat(salvo.getUtmSource()).isEqualTo("instagram");
+            assertThat(salvo.getUtmMedium()).isEqualTo("social");
+            assertThat(salvo.getUtmCampaign()).isEqualTo("turma-fundadora");
+            assertThat(salvo.getUtmContent()).isEqualTo("bio-link");
+        }
+
+        @Test
+        @DisplayName("ausência de UTM grava as 4 colunas como null (cliente antigo intocado)")
+        void semUtmGravaNull() {
+            when(waitlistRepository.existsByEmailNormalized("maria@exemplo.com")).thenReturn(false);
+            when(waitlistRepository.saveAndFlush(any(Waitlist.class))).thenAnswer(inv -> inv.getArgument(0));
+            ArgumentCaptor<Waitlist> captor = ArgumentCaptor.forClass(Waitlist.class);
+
+            waitlistService.registrar(dto("maria@exemplo.com", PerfilWaitlist.TREINADOR, FaixaAtletas.DE_11_A_30, null));
+
+            verify(waitlistRepository).saveAndFlush(captor.capture());
+            Waitlist salvo = captor.getValue();
+            assertThat(salvo.getUtmSource()).isNull();
+            assertThat(salvo.getUtmMedium()).isNull();
+            assertThat(salvo.getUtmCampaign()).isNull();
+            assertThat(salvo.getUtmContent()).isNull();
+        }
     }
 
     private WaitlistInputDto dto(String email, PerfilWaitlist perfil, FaixaAtletas faixa, String website) {
-        return new WaitlistInputDto("Maria Treinadora", email, "+55 11 99999-9999", perfil, faixa, true, website);
+        return new WaitlistInputDto("Maria Treinadora", email, "+55 11 99999-9999", perfil, faixa, true, website,
+                null, null, null, null);
     }
 }

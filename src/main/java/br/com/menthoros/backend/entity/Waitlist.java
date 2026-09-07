@@ -51,6 +51,18 @@ public class Waitlist {
     @Column(name = "origem", length = 40)
     private String origem;
 
+    @Column(name = "utm_source", length = 255)
+    private String utmSource;
+
+    @Column(name = "utm_medium", length = 255)
+    private String utmMedium;
+
+    @Column(name = "utm_campaign", length = 255)
+    private String utmCampaign;
+
+    @Column(name = "utm_content", length = 255)
+    private String utmContent;
+
     @Builder.Default
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
