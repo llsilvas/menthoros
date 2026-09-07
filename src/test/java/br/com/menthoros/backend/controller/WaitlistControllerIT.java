@@ -42,12 +42,21 @@ class WaitlistControllerIT extends AbstractIntegrationTest {
 
     private String body(String nome, String email, String perfil, boolean aceite, String website,
                         String qtdAtletas) {
+        return body(nome, email, perfil, aceite, website, qtdAtletas, null, null, null, null);
+    }
+
+    private String body(String nome, String email, String perfil, boolean aceite, String website,
+                        String qtdAtletas, String utmSource, String utmMedium, String utmCampaign, String utmContent) {
         StringBuilder sb = new StringBuilder("{");
         if (nome != null) sb.append("\"nome\":\"").append(nome).append("\",");
         if (email != null) sb.append("\"email\":\"").append(email).append("\",");
         sb.append("\"perfil\":\"").append(perfil).append("\",");
         if (qtdAtletas != null) sb.append("\"qtdAtletas\":\"").append(qtdAtletas).append("\",");
         if (website != null) sb.append("\"website\":\"").append(website).append("\",");
+        if (utmSource != null) sb.append("\"utmSource\":\"").append(utmSource).append("\",");
+        if (utmMedium != null) sb.append("\"utmMedium\":\"").append(utmMedium).append("\",");
+        if (utmCampaign != null) sb.append("\"utmCampaign\":\"").append(utmCampaign).append("\",");
+        if (utmContent != null) sb.append("\"utmContent\":\"").append(utmContent).append("\",");
         sb.append("\"aceiteLgpd\":").append(aceite).append("}");
         return sb.toString();
     }
@@ -111,6 +120,43 @@ class WaitlistControllerIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.status").value("JA_INSCRITO"));
 
         assertThat(waitlistRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("com UTM na inscrição, persiste os 4 campos em tb_waitlist")
+    void comUtmPersisteOs4Campos() throws Exception {
+        mockMvc.perform(post("/api/v1/waitlist")
+                        .header("X-Forwarded-For", "10.0.0.6")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("Maria", "utm@exemplo.com", "TREINADOR", true, null, "DE_11_A_30",
+                                "instagram", "social", "turma-fundadora", "bio-link")))
+                .andExpect(status().isCreated());
+
+        Waitlist salvo = waitlistRepository.findAll().stream()
+                .filter(w -> "utm@exemplo.com".equals(w.getEmail()))
+                .findFirst().orElseThrow();
+        assertThat(salvo.getUtmSource()).isEqualTo("instagram");
+        assertThat(salvo.getUtmMedium()).isEqualTo("social");
+        assertThat(salvo.getUtmCampaign()).isEqualTo("turma-fundadora");
+        assertThat(salvo.getUtmContent()).isEqualTo("bio-link");
+    }
+
+    @Test
+    @DisplayName("sem UTM na inscrição, as 4 colunas nascem null (cliente antigo intocado)")
+    void semUtmColunasNascemNull() throws Exception {
+        mockMvc.perform(post("/api/v1/waitlist")
+                        .header("X-Forwarded-For", "10.0.0.7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("Joao", "sem-utm@exemplo.com", "ATLETA", true, null, null)))
+                .andExpect(status().isCreated());
+
+        Waitlist salvo = waitlistRepository.findAll().stream()
+                .filter(w -> "sem-utm@exemplo.com".equals(w.getEmail()))
+                .findFirst().orElseThrow();
+        assertThat(salvo.getUtmSource()).isNull();
+        assertThat(salvo.getUtmMedium()).isNull();
+        assertThat(salvo.getUtmCampaign()).isNull();
+        assertThat(salvo.getUtmContent()).isNull();
     }
 
     @Test

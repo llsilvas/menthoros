@@ -108,41 +108,5 @@ class KeycloakOrganizationGatewayImplTest {
                 .isInstanceOf(KeycloakIntegrationException.class);
     }
 
-    @Test
-    void enviarConviteAtletaPostaFormEmail() {
-        String orgId = "org-1";
-        String inviteEndpoint = ORGANIZATIONS_ENDPOINT + "/" + orgId + "/members/invite-user";
 
-        server.expect(requestTo(TOKEN_ENDPOINT))
-                .andExpect(method(POST))
-                .andRespond(withSuccess("{\"access_token\":\"tkn\"}", MediaType.APPLICATION_JSON));
-
-        server.expect(requestTo(inviteEndpoint))
-                .andExpect(method(POST))
-                .andExpect(header("Authorization", "Bearer tkn"))
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_FORM_URLENCODED))
-                .andExpect(content().string(containsString("email=ana%40teste.com")))
-                .andRespond(withStatus(HttpStatus.NO_CONTENT));
-
-        gateway.enviarConviteAtleta(orgId, "ana@teste.com", UUID.randomUUID());
-
-        server.verify();
-    }
-
-    @Test
-    void enviarConviteAtletaLancaQuandoNon2xx() {
-        String orgId = "org-1";
-        String inviteEndpoint = ORGANIZATIONS_ENDPOINT + "/" + orgId + "/members/invite-user";
-
-        server.expect(requestTo(TOKEN_ENDPOINT))
-                .andExpect(method(POST))
-                .andRespond(withSuccess("{\"access_token\":\"tkn\"}", MediaType.APPLICATION_JSON));
-
-        server.expect(requestTo(inviteEndpoint))
-                .andExpect(method(POST))
-                .andRespond(withStatus(HttpStatus.BAD_REQUEST));
-
-        assertThatThrownBy(() -> gateway.enviarConviteAtleta(orgId, "ana@teste.com", UUID.randomUUID()))
-                .isInstanceOf(KeycloakIntegrationException.class);
-    }
 }

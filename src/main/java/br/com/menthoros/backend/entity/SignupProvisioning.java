@@ -46,7 +46,7 @@ public class SignupProvisioning {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "idempotency_key", nullable = false, unique = true, length = 64)
+    @Column(name = "idempotency_key", nullable = false, unique = true, length = 100)
     private String idempotencyKey;
 
     /** Hash do payload SEM a senha — distingue reenvio idêntico de chave reusada com outro corpo. */

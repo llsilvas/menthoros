@@ -49,6 +49,10 @@ public class PublicEndpointRateLimitFilter extends OncePerRequestFilter {
     static final String PATH_COACH_SIGNUP = "/api/public/coach-signups";
     /** Prefixo: o token vai no path. Só GET. */
     static final String PATH_FOUNDING_INVITE_LOOKUP = "/api/public/founding-invites/";
+    /** Prefixo do lookup do convite de atleta (GET, token no path). */
+    static final String PATH_ATHLETE_INVITE_LOOKUP = "/api/public/athlete-invites/";
+    /** Aceite do convite de atleta: cria conta — mesma cautela do coach signup. */
+    static final String PATH_ATHLETE_INVITE_ACCEPT = "/api/public/athlete-invites/aceitar";
 
     /** Uma política por rota: limite, janela, e o contador que a materializa. */
     private record Politica(int limite, Duration janela, Cache<String, AtomicInteger> contador) {
@@ -78,6 +82,9 @@ public class PublicEndpointRateLimitFilter extends OncePerRequestFilter {
         // Janela de hora, e não de minuto: o cadastro é uma ação rara e cara. Um humano não faz
         // três num minuto, e quem faz não é humano.
         politicas.put(PATH_COACH_SIGNUP, Politica.de(signupPorHora, Duration.ofHours(1)));
+        // Aceite do convite de atleta cria conta no Keycloak — janela de hora, como o coach
+        // signup: ação rara e cara; três num minuto não é humano.
+        politicas.put(PATH_ATHLETE_INVITE_ACCEPT, Politica.de(signupPorHora, Duration.ofHours(1)));
         // Um GET que devolve nome e e-mail para quem tiver um token: barato de servir, mas é PII e
         // não pode ficar sem teto. Minuto, não hora: a página consulta uma vez ao abrir.
         this.consultaConvite = Politica.de(consultaConvitePorMinuto, Duration.ofMinutes(1));
@@ -97,7 +104,8 @@ public class PublicEndpointRateLimitFilter extends OncePerRequestFilter {
         if (HttpMethod.POST.matches(request.getMethod())) {
             return politicas.get(uri);
         }
-        if (HttpMethod.GET.matches(request.getMethod()) && uri.startsWith(PATH_FOUNDING_INVITE_LOOKUP)) {
+        if (HttpMethod.GET.matches(request.getMethod())
+                && (uri.startsWith(PATH_FOUNDING_INVITE_LOOKUP) || uri.startsWith(PATH_ATHLETE_INVITE_LOOKUP))) {
             return consultaConvite;
         }
         return null;

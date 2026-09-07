@@ -16,7 +16,7 @@ import br.com.menthoros.backend.repository.AtletaRepository;
 import br.com.menthoros.backend.repository.PlanoMetadadosRepository;
 import br.com.menthoros.backend.repository.specification.AtletaSpecification;
 import br.com.menthoros.backend.services.AtletaService;
-import br.com.menthoros.backend.services.KeycloakOrganizationGateway;
+import br.com.menthoros.backend.services.AthleteInviteService;
 import br.com.menthoros.backend.services.TsbService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,7 +42,7 @@ public class AtletaServiceImpl implements AtletaService {
     private final AtletaMapper atletaMapper;
     private final PlanoMetadadosRepository planoMetaDadosRepository;
     private final TsbService tsbService;
-    private final KeycloakOrganizationGateway keycloakOrganizationGateway;
+    private final AthleteInviteService athleteInviteService;
 
     private static final String HAS_TENANT =
             "T(br.com.menthoros.backend.multitenancy.TenantContext).hasTenant()";
@@ -239,38 +239,23 @@ public class AtletaServiceImpl implements AtletaService {
     }
 
     /**
-     * Gera ou reenvia o convite de acesso para o atleta via Keycloak Organization.
+     * Gera ou reenvia o convite de acesso para o atleta — por token do backend, não mais pelo
+     * invite-user do Keycloak Organizations (change add-athlete-invite-token-link).
      *
      * Idempotent: NO — cada chamada (re)envia o convite (efeito externo observável); não duplica Atleta/Usuario.
-     * Side Effects: External API call (Keycloak)
+     * Side Effects: Database insert/update + External API (SMTP) — via AthleteInviteService.
      * Tenant-aware: YES
+     *
+     * Deliberadamente SEM @Transactional: o serviço delegado envia e-mail fora de transação e
+     * depende de a UNIQUE parcial decidir corrida de emissão no próprio insert.
      *
      * @param atletaId UUID do atleta a ser convidado
      * @throws DomainNotFoundException se o atleta não pertencer ao tenant atual
-     * @throws DomainRuleViolationException se o atleta não possuir email ou a assessoria não tiver keycloakOrganizationId
+     * @throws DomainRuleViolationException se o atleta não possuir email
      */
     @Override
-    @Transactional(readOnly = true)
     public void gerarConvite(UUID atletaId) {
-        UUID tenantId = TenantContext.getRequiredTenantId();
-        log.info("Gerando convite de atleta: atletaId={}, tenantId={}", atletaId, tenantId);
-
-        Atleta atleta = atletaRepository.findByIdAndTenantId(atletaId, tenantId)
-                .orElseThrow(() -> new DomainNotFoundException("Atleta não encontrado: " + atletaId));
-
-        if (atleta.getEmail() == null || atleta.getEmail().isBlank()) {
-            throw new DomainRuleViolationException("Atleta sem email não pode ser convidado");
-        }
-
-        String orgId = atleta.getAssessoria().getKeycloakOrganizationId();
-        if (orgId == null || orgId.isBlank()) {
-            throw new DomainRuleViolationException(
-                "Assessoria sem keycloakOrganizationId — execute o onboarding da assessoria primeiro");
-        }
-        keycloakOrganizationGateway.enviarConviteAtleta(orgId, atleta.getEmail(), atletaId);
-
-        log.info("Convite de atleta enviado: atletaId={}, email={}, orgId={}",
-                atletaId, atleta.getEmail(), orgId);
+        athleteInviteService.invite(atletaId);
     }
 
 }

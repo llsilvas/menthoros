@@ -91,42 +91,6 @@ public class KeycloakOrganizationGatewayImpl implements KeycloakOrganizationGate
         }
     }
 
-    /**
-     * Envia (ou reenvia) um convite de atleta vinculado à Organization da assessoria.
-     *
-     * <p><strong>Idempotent:</strong> NO — reenvia o convite a cada chamada.
-     * <p><strong>Side Effects:</strong> External API (Keycloak) — dispara convite por email.
-     * <p><strong>Tenant-aware:</strong> N/A — escopo definido pela Organization.
-     *
-     * @param keycloakOrganizationId id da Organization no Keycloak
-     * @param email email do atleta convidado
-     * @param atletaId id do atleta (apenas para correlação em log)
-     * @throws KeycloakIntegrationException em falha de token ou resposta não-2xx
-     */
-    @Override
-    public void enviarConviteAtleta(String keycloakOrganizationId, String email, UUID atletaId) {
-        log.info("Enviando convite de atleta via Keycloak: orgId={}, atletaId={}",
-                keycloakOrganizationId, atletaId);
-        String token = obterTokenAdmin();
-
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("email", email);
-
-        try {
-            restClient.post()
-                    .uri("/admin/realms/{realm}/organizations/{orgId}/members/invite-user",
-                            props.getRealm(), keycloakOrganizationId)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .body(form)
-                    .retrieve()
-                    .toBodilessEntity();
-            log.info("Convite de atleta enviado: orgId={}, atletaId={}", keycloakOrganizationId, atletaId);
-        } catch (Exception e) {
-            throw new KeycloakIntegrationException(
-                    "Falha ao enviar convite de atleta no Keycloak (orgId=" + keycloakOrganizationId + ")", e);
-        }
-    }
 
     /**
      * Busca o id do usuário pelo e-mail, com correspondência exata.

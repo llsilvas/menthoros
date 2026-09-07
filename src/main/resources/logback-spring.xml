@@ -59,9 +59,12 @@
     - Economiza espaço em armazenamento
     -->
 
-    <!-- Segurança: logar todos os avisos -->
-    <logger name="br.com.menthoros.backend.security" level="DEBUG"/>
-    <logger name="br.com.menthoros.backend.multitenancy" level="DEBUG"/>
+    <!-- Segurança/multitenancy: INFO por padrão. DEBUG aqui era incondicional e valia para
+         TODOS os profiles — em produção o JwtTenantFilter emitia 4+ linhas por requisição, o que
+         estourou o rate limit de 500 logs/s do Railway no incidente de 2026-09-04. O DEBUG de
+         diagnóstico vive apenas no springProfile "dev", abaixo. -->
+    <logger name="br.com.menthoros.backend.security" level="INFO"/>
+    <logger name="br.com.menthoros.backend.multitenancy" level="INFO"/>
 
     <!-- Aspecto de validação: logar tudo -->
     <logger name="br.com.menthoros.backend.security.TenantValidationAspect" level="INFO"/>
@@ -82,14 +85,14 @@
 
     <!-- Perfis específicos -->
     <springProfile name="dev">
+        <logger name="br.com.menthoros.backend.security" level="DEBUG"/>
+        <logger name="br.com.menthoros.backend.multitenancy" level="DEBUG"/>
         <root level="DEBUG">
             <appender-ref ref="CONSOLE"/>
         </root>
     </springProfile>
 
-    <springProfile name="prod">
-        <root level="INFO">
-            <appender-ref ref="FILE"/>
-        </root>
-    </springProfile>
+    <!-- O bloco <springProfile name="prod"> que existia aqui nunca ativou: o profile real de
+         produção é "cloud". O default acima (root INFO) já é o comportamento correto para cloud;
+         não recriar bloco por profile sem necessidade. -->
 </configuration>
