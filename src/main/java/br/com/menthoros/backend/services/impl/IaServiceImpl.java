@@ -171,6 +171,17 @@ public class IaServiceImpl implements IaService {
                     : null;
 
             if (treinoProps != null) {
+                // provaId/descricao/zonaAlvo nunca vêm do LLM (prova-no-plano-semanal,
+                // TreinoPlanejadoLlmDto.java) — ProvaNoPlanoService os preenche depois, no
+                // servidor. Removidos ANTES de enforceAllRequired: sem isso, strict:true da
+                // OpenAI força os três a "required" com um schema de UUID sem opção de nulo, e o
+                // modelo não tem como expressar "sem prova" — cai no sentinel
+                // 00000000-0000-0000-0000-000000000000, que é um UUID sintaticamente válido e
+                // quebra a FK de tb_treino_planejado.prova_id ao persistir.
+                treinoProps.remove("provaId");
+                treinoProps.remove("descricao");
+                treinoProps.remove("zonaAlvo");
+
                 // Enums
                 putEnum(treinoProps, "diaSemana",
                         List.of("DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"));

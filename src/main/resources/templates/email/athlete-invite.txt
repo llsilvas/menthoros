@@ -1,0 +1,15 @@
+Menthoros
+
+{{nome}}, seu treinador te convidou.
+
+A assessoria {{assessoria}} usa o Menthoros para planejar e acompanhar seus
+treinos. Com a sua conta você acessa seu painel: treino do dia, plano da
+semana, provas e evolução.
+
+Para entrar, confirme seus dados e escolha uma senha. Leva menos de dois minutos:
+
+{{link}}
+
+Este convite é pessoal e vale por {{validade}}. Se expirar, peça ao seu
+treinador para reenviar. Se você não esperava este convite, pode ignorar
+esta mensagem.

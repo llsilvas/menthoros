@@ -21,11 +21,6 @@ public interface KeycloakOrganizationGateway {
     String criarOrganization(String nome, String dominio, UUID tenantId);
 
     /**
-     * Gera/reenvia um convite de atleta vinculado à Organization da assessoria.
-     */
-    void enviarConviteAtleta(String keycloakOrganizationId, String email, UUID atletaId);
-
-    /**
      * Busca o id do usuário pelo e-mail, com correspondência exata.
      * @return o id, ou vazio quando não existe usuário com esse e-mail
      */

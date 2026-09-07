@@ -66,6 +66,10 @@ public class WaitlistServiceImpl implements WaitlistService {
                 .qtdAtletas(dto.perfil() == PerfilWaitlist.TREINADOR ? dto.qtdAtletas() : null)
                 .aceiteLgpd(Boolean.TRUE.equals(dto.aceiteLgpd()))
                 .origem(ORIGEM_LANDING)
+                .utmSource(dto.utmSource())
+                .utmMedium(dto.utmMedium())
+                .utmCampaign(dto.utmCampaign())
+                .utmContent(dto.utmContent())
                 .build();
 
         try {

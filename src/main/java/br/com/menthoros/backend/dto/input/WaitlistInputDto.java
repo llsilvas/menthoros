@@ -40,5 +40,21 @@ public record WaitlistInputDto(
         Boolean aceiteLgpd,
 
         @Schema(description = "Campo honeypot anti-spam — deve vir vazio", hidden = true)
-        String website
+        String website,
+
+        @Schema(description = "Parâmetro utm_source da URL de origem (ex.: instagram)", example = "instagram")
+        @Size(max = 255)
+        String utmSource,
+
+        @Schema(description = "Parâmetro utm_medium da URL de origem (ex.: social)", example = "social")
+        @Size(max = 255)
+        String utmMedium,
+
+        @Schema(description = "Parâmetro utm_campaign da URL de origem (ex.: turma-fundadora)", example = "turma-fundadora")
+        @Size(max = 255)
+        String utmCampaign,
+
+        @Schema(description = "Parâmetro utm_content da URL de origem", example = "bio-link")
+        @Size(max = 255)
+        String utmContent
 ) {}

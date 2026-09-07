@@ -9,12 +9,16 @@ import br.com.menthoros.backend.repository.AtletaRepository;
 import br.com.menthoros.backend.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -35,8 +39,27 @@ public class UsuarioSyncServiceImpl implements UsuarioSyncService {
     private final AtletaRepository atletaRepository;
 
     /**
-     * Sincroniza usuário a partir do JWT do Keycloak
-     * Chamado automaticamente pelo JwtTenantFilter em cada request
+     * Janela mínima entre registros de "último acesso". O sync roda a cada requisição; sem o
+     * throttle, cada uma vira um UPDATE em tb_usuario — foi o amplificador do incidente de pool
+     * de 2026-09-04 (um lock nessa linha esgotou as conexões). PT0S desliga o throttle (rollback
+     * sem deploy de código).
+     */
+    @Value("${app.security.user-sync.access-throttle:PT5M}")
+    private Duration accessThrottle = Duration.ofMinutes(5);
+
+    /**
+     * Sincroniza usuário a partir do JWT do Keycloak.
+     * Chamado automaticamente pelo JwtTenantFilter em cada request.
+     *
+     * Idempotent: YES — dentro da janela de throttle, chamadas repetidas com o mesmo JWT são
+     *   no-op de escrita (nenhum UPDATE); divergência de campo espelhado escreve sempre.
+     * Side Effects: Database update CONDICIONAL (diff do JWT ou throttle vencido; usuário novo
+     *   sempre insere) + possível vínculo de Atleta órfão. NUNCA assuma que toda chamada grava
+     *   ultimoAcesso.
+     * Tenant-aware: YES — tenantId usado na criação do usuário e no vínculo de atleta.
+     *
+     * Retorna SEMPRE o Usuario resolvido, mesmo no caminho no-op — o LgpdConsentInterceptor
+     * depende dele via USUARIO_ATTR.
      *
      * @param jwt JWT do Keycloak com claims do usuário
      * @param tenantId UUID da assessoria (tenant)
@@ -56,33 +79,65 @@ public class UsuarioSyncServiceImpl implements UsuarioSyncService {
 
         log.debug("Sincronizando usuário: keycloakId={}, email={}, tenantId={}", keycloakId, email, tenantId);
 
-        // Busca ou cria o usuário
-        Usuario usuario = usuarioRepository.findByKeycloakId(keycloakId)
-                .orElseGet(() -> createNewUsuario(keycloakId, tenantId));
-
-        // Atualiza dados do Keycloak
-        usuario.setEmail(email);
-        usuario.setNome(nome != null ? nome : email.split("@")[0]); // Fallback para parte do email
-        usuario.setSobrenome(sobrenome);
-        usuario.setEmailVerificado(emailVerificado != null ? emailVerificado : false);
-        usuario.setRole(userRole);
+        String nomeEfetivo = nome != null ? nome : email.split("@")[0]; // Fallback para parte do email
+        boolean emailVerificadoEfetivo = emailVerificado != null ? emailVerificado : false;
         // Espelho da role PROPRIETARIO: atribuição SEMPRE, nunca só quando presente — perder a
         // role no Keycloak precisa desligar a flag no próximo acesso, senão o banco vira uma
         // segunda fonte da verdade que ninguém reconcilia.
-        usuario.setOwner(roles.contains("PROPRIETARIO"));
-        usuario.registrarAcesso();
-        usuario.registrarSincronizacao();
+        boolean owner = roles.contains("PROPRIETARIO");
 
-        usuario = usuarioRepository.save(usuario);
+        Usuario existente = usuarioRepository.findByKeycloakId(keycloakId).orElse(null);
+        Usuario usuario = existente != null ? existente : createNewUsuario(keycloakId, tenantId);
 
-        log.info("Usuário sincronizado: id={}, email={}, role={}, tenant={}",
-                usuario.getId(), usuario.getEmail(), usuario.getRole(), tenantId);
+        // O diff é calculado ANTES de qualquer setter: a entidade é gerenciada e o método é
+        // @Transactional — mutar e "não chamar save()" ainda flusharia o UPDATE por dirty
+        // checking. Só mutamos quando a decisão já é escrever.
+        boolean divergiuDoJwt = existente == null
+                || !Objects.equals(usuario.getEmail(), email)
+                || !Objects.equals(usuario.getNome(), nomeEfetivo)
+                || !Objects.equals(usuario.getSobrenome(), sobrenome)
+                || !Objects.equals(usuario.getEmailVerificado(), emailVerificadoEfetivo)
+                || usuario.getRole() != userRole
+                || usuario.isOwner() != owner;
+        boolean acessoVencido = existente == null
+                || deveRegistrarAcesso(usuario.getUltimoAcesso());
 
+        if (divergiuDoJwt || acessoVencido) {
+            usuario.setEmail(email);
+            usuario.setNome(nomeEfetivo);
+            usuario.setSobrenome(sobrenome);
+            usuario.setEmailVerificado(emailVerificadoEfetivo);
+            usuario.setRole(userRole);
+            usuario.setOwner(owner);
+            usuario.registrarAcesso();
+            usuario.registrarSincronizacao();
+
+            usuario = usuarioRepository.save(usuario);
+
+            // INFO de propósito: este é o único registro de mudança de role/owner em produção
+            // (root INFO no cloud). O volume é seguro — só dispara em escrita real, que o
+            // throttle já limita por usuário.
+            log.info("Usuário sincronizado: id={}, email={}, role={}, tenant={}",
+                    usuario.getId(), usuario.getEmail(), usuario.getRole(), tenantId);
+        }
+
+        // Fora da condição de escrita, de propósito: um atleta órfão pré-existente precisa ser
+        // vinculado mesmo quando o sync não tem nada a escrever no usuário. Trade-off aceito: o
+        // SELECT por e-mail roda em toda requisição de ATLETA (como já rodava antes do throttle) —
+        // é leitura indexada e não segura lock; o amplificador do incidente eram as escritas.
         if (usuario.getRole() == UserRole.ATLETA) {
             vincularAtletaSeNecessario(usuario, tenantId);
         }
 
         return usuario;
+    }
+
+    /**
+     * Idempotent: YES — leitura pura. Side Effects: NONE. Tenant-aware: N/A.
+     */
+    private boolean deveRegistrarAcesso(LocalDateTime ultimoAcesso) {
+        return ultimoAcesso == null
+                || ultimoAcesso.plus(accessThrottle).isBefore(LocalDateTime.now());
     }
 
     /**

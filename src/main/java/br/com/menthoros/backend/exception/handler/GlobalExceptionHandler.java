@@ -6,6 +6,7 @@ import br.com.menthoros.backend.exception.AsaasIntegrationException;
 import br.com.menthoros.backend.exception.ConsentResolutionUnavailableException;
 import br.com.menthoros.backend.exception.ConsentVersionStaleException;
 import br.com.menthoros.backend.exception.DomainConflictException;
+import br.com.menthoros.backend.exception.DomainGoneException;
 import br.com.menthoros.backend.exception.LgpdConsentRequiredException;
 import br.com.menthoros.backend.exception.DomainNotFoundException;
 import br.com.menthoros.backend.exception.DomainRuleViolationException;
@@ -359,6 +360,17 @@ public class GlobalExceptionHandler {
                 "message", ex.getMessage()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(DomainGoneException.class)
+    public ResponseEntity<Map<String, Object>> handleDomainGone(DomainGoneException ex) {
+        log.warn("Recurso não mais disponível: {}", ex.getMessage());
+        Map<String, Object> body = Map.of(
+                "status", 410,
+                "error", "Gone",
+                "message", ex.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.GONE).body(body);
     }
 
     @ExceptionHandler(DomainRuleViolationException.class)
