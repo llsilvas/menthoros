@@ -59,13 +59,13 @@ public class PlanoTreinoController {
     }
 
     @DeleteMapping("/{planoSemanalId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('TECNICO', 'ADMIN')")
     @Operation(summary = "Deletar plano semanal", description = "Remove um plano semanal do sistema")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Plano deletado com sucesso"),
             @ApiResponse(responseCode = "404", description = "Plano não encontrado",
                     content = @Content(mediaType = "application/json")),
-            @ApiResponse(responseCode = "403", description = "Acesso negado - apenas ADMIN pode deletar planos",
+            @ApiResponse(responseCode = "403", description = "Acesso negado - requer TECNICO ou ADMIN",
                     content = @Content(mediaType = "application/json"))
     })
     public ResponseEntity<Void> deletePlanoSemanal(
