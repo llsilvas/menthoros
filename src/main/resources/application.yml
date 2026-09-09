@@ -389,6 +389,12 @@ app:
 # ----------------------------------------
 planner-engine:
   shadow: ${PLANNER_ENGINE_SHADOW:false}
+  # Enforcement (planner-engine-enforcement): skeleton vinculante no prompt + compliance no retry.
+  # `enabled=false` por padrão (rollout gated — ver tasks 8.4); `fail-open=true` inicial: violacao
+  # SOFT do estagio 2 persiste FAILED + revisao, mas invariante OBRIGATORIA (hard) sempre falha
+  # fechado (422), acima do fail-open (design Decisao 3).
+  enabled: ${PLANNER_ENGINE_ENABLED:false}
+  fail-open: ${PLANNER_ENGINE_FAIL_OPEN:true}
   injury:
     recent-window-days: ${PLANNER_ENGINE_INJURY_RECENT_WINDOW_DAYS:30}
 

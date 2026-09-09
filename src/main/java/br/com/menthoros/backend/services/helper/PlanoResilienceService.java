@@ -66,38 +66,52 @@ public class PlanoResilienceService {
     public PlanoSemanalLlmDto gerarComResiliencia(Function<String, PlanoSemanalLlmDto> gerar,
                                                   Function<PlanoSemanalLlmDto, PlanoSemanalLlmDto> validar,
                                                   String promptBase) {
+        // Orçamento por invocação (comportamento atual). O overload abaixo recebe um orçamento
+        // compartilhado por requisição (enforced + fallback) — ver design planner-engine-enforcement 3b.
+        return gerarComResiliencia(gerar, validar, promptBase, new GenerationBudget(MAX_TENTATIVAS, deadlineTotal));
+    }
+
+    /**
+     * Variante que recebe um {@link GenerationBudget} <b>compartilhado</b> pela requisição inteira:
+     * o débito é feito <b>antes</b> de cada chamada ao LLM, o relógio é o do orçamento (não reinicia),
+     * e esgotado o orçamento (contagem ou deadline) nenhuma nova geração é iniciada. Usado quando o
+     * enforcement e um eventual fallback legado precisam somar no mesmo teto (design 3b).
+     */
+    public PlanoSemanalLlmDto gerarComResiliencia(Function<String, PlanoSemanalLlmDto> gerar,
+                                                  Function<PlanoSemanalLlmDto, PlanoSemanalLlmDto> validar,
+                                                  String promptBase,
+                                                  GenerationBudget orcamento) {
         Counter.builder("plano_geracao_total").register(meterRegistry).increment(); // denominador da taxa de sucesso
         String prompt = promptBase;
         LLMException ultimaFalha = null;
-        long inicioNanos = System.nanoTime();
+        int geracoes = 0;
 
-        for (int tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
-            PlanoSemanalLlmDto plano = gerar.apply(prompt); // falha de geração propaga (infra → 503)
-            try {
-                return validar.apply(plano);
-            } catch (LLMException e) {
-                ultimaFalha = e;
-                if (tentativa >= MAX_TENTATIVAS) break;
-                Duration decorrido = Duration.ofNanos(System.nanoTime() - inicioNanos);
-                if (decorrido.compareTo(deadlineTotal) >= 0) {
-                    Counter.builder("plano_deadline_estourado").register(meterRegistry).increment();
-                    log.warn("Orcamento de {}s esgotado apos {}s na tentativa {} — 2a tentativa nao sera iniciada",
-                            deadlineTotal.toSeconds(), decorrido.toSeconds(), tentativa);
-                    break;
-                }
+        while (orcamento.tentarDebitar()) { // débito ANTES da chamada; false = orçamento esgotado
+            geracoes++;
+            if (geracoes > 1) { // 2ª geração em diante = retry com feedback
                 Counter.builder("plano_retry").tag("motivo", "estrutural").register(meterRegistry).increment();
-                String motivo = truncar(e.getMessage());
-                log.warn("Plano rejeitado na tentativa {} ({}); re-gerando 1x com feedback", tentativa, motivo);
+                String motivo = truncar(ultimaFalha != null ? ultimaFalha.getMessage() : null);
+                log.warn("Plano rejeitado; re-gerando com feedback ({})", motivo);
                 prompt = promptBase
                         + "\n\n## CORRECAO OBRIGATORIA (a tentativa anterior foi rejeitada)\n"
                         + "Motivo: " + motivo + "\n"
                         + "Gere o plano novamente corrigindo exatamente esse ponto, mantendo as demais regras.";
             }
+            PlanoSemanalLlmDto plano = gerar.apply(prompt); // falha de geração propaga (infra → 503); a tentativa já foi debitada
+            try {
+                return validar.apply(plano);
+            } catch (LLMException e) {
+                ultimaFalha = e; // loop: a próxima iteração debita (se houver orçamento) e retenta
+            }
         }
 
+        if (orcamento.deadlineEstourado()) {
+            Counter.builder("plano_deadline_estourado").register(meterRegistry).increment();
+            log.warn("Orcamento de {}s esgotado — nova geração não será iniciada", deadlineTotal.toSeconds());
+        }
         Counter.builder("plano_geracao_falha_final").register(meterRegistry).increment();
-        log.error("Geração de plano falhou após reparo + {} tentativa(s): {}",
-                MAX_TENTATIVAS, ultimaFalha != null ? truncar(ultimaFalha.getMessage()) : "desconhecido");
+        log.error("Geração de plano falhou após {} geração(ões): {}",
+                geracoes, ultimaFalha != null ? truncar(ultimaFalha.getMessage()) : "desconhecido");
         throw new DomainRuleViolationException(
                 "Não foi possível gerar o plano desta semana. Tente novamente ou ajuste os parâmetros do atleta.");
     }
