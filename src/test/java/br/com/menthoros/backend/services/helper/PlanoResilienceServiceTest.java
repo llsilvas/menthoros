@@ -152,4 +152,42 @@ class PlanoResilienceServiceTest {
         assertThat(contador("plano_geracao_falha_final")).isZero();
     }
     }
+
+    @Nested
+    @DisplayName("orçamento compartilhado por requisição (design 3b)")
+    class OrcamentoCompartilhado {
+
+        @Test
+        @DisplayName("o mesmo orçamento não ultrapassa 2 gerações somando enforced + fallback")
+        void naoUltrapassaTeto() {
+            var orcamento = new GenerationBudget(2, java.time.Duration.ofSeconds(30));
+            List<String> chamadas = new ArrayList<>();
+            Function<String, PlanoSemanalLlmDto> gerar = p -> { chamadas.add(p); return plano(); };
+            Function<PlanoSemanalLlmDto, PlanoSemanalLlmDto> rejeita = p -> { throw new LLMException("x"); };
+
+            // 1º caminho (enforced): esgota as 2 gerações do orçamento
+            assertThatThrownBy(() -> service.gerarComResiliencia(gerar, rejeita, "base", orcamento))
+                    .isInstanceOf(DomainRuleViolationException.class);
+            assertThat(chamadas).hasSize(2);
+
+            // 2º caminho (fallback) com o MESMO orçamento: já esgotado -> nenhuma geração nova
+            assertThatThrownBy(() -> service.gerarComResiliencia(gerar, rejeita, "base", orcamento))
+                    .isInstanceOf(DomainRuleViolationException.class);
+            assertThat(chamadas).hasSize(2); // não cresceu — fallback não gerou de novo
+            assertThat(orcamento.gastas()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("orçamento já esgotado não inicia nenhuma geração (gerar nunca é chamado)")
+        void esgotadoNaoGera() {
+            var orcamento = new GenerationBudget(1, java.time.Duration.ofSeconds(30));
+            orcamento.tentarDebitar(); // esgota o único slot fora do service
+            List<String> chamadas = new ArrayList<>();
+            Function<String, PlanoSemanalLlmDto> gerar = p -> { chamadas.add(p); return plano(); };
+
+            assertThatThrownBy(() -> service.gerarComResiliencia(gerar, p -> p, "base", orcamento))
+                    .isInstanceOf(DomainRuleViolationException.class);
+            assertThat(chamadas).isEmpty(); // débito antes da chamada: sem orçamento, não chama o LLM
+        }
+    }
 }
