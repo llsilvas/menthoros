@@ -175,6 +175,22 @@ public class PlannerShadowService {
         return skeleton;
     }
 
+    /**
+     * Computa o {@link WeekPlanSkeleton} para uso PRE-prompt (planner-engine-enforcement secao 3),
+     * reusando o mesmo mapeamento de snapshot do shadow — SEM os efeitos de auditoria/persistencia/
+     * metricas do {@link #executar}. Somente leitura.
+     *
+     * <p>Idempotent: YES (puro/leitura). Side Effects: NONE. Tenant-aware: recebe o {@code DadosPlanoDto}
+     * ja resolvido pelo chamador. Nao engole excecao — o chamador aplica o fail-open (design Decisao 3).
+     */
+    public WeekPlanSkeleton computarSkeleton(DadosPlanoDto dadosPlano,
+                                             DecisaoProgressao decisaoProgressao,
+                                             LocalDate semanaInicio,
+                                             Optional<br.com.menthoros.backend.domain.planner.OnboardingContext> onboardingContext) {
+        PlannerInputSnapshot snapshot = mapToSnapshot(dadosPlano.atleta(), dadosPlano, decisaoProgressao, semanaInicio, onboardingContext);
+        return plannerEngine.planWeek(snapshot);
+    }
+
     // --- Mapeamento entity -> record (anti-corruption layer, design.md Decisao 17) ---
 
     private PlannerInputSnapshot mapToSnapshot(Atleta atleta,
