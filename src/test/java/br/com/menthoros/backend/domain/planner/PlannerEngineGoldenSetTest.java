@@ -62,6 +62,28 @@ class PlannerEngineGoldenSetTest {
                 .isEqualTo(caso.expectedRiskLevel());
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("casos")
+    @DisplayName("golden set — sessões prescritivas coerentes (composição + alocação, task 2.5)")
+    void compoeSessoesCoerentes(GoldenCase caso) {
+        WeekPlanSkeleton skeleton = engine.planWeek(caso.toSnapshot());
+        List<SessionSlot> sessoes = skeleton.sessions();
+
+        assertThat(sessoes).as("sessões de '%s'", caso.label()).isNotNull();
+        assertThat(sessoes).allSatisfy(slot -> {
+            assertThat(slot.sessionType()).isNotBlank();
+            assertThat(slot.intensityZone()).isNotBlank();
+            assertThat(slot.durationMinutes()).isNotNull();
+            assertThat(slot.durationMinutes()).isBetween(20, 300); // dentro dos clamps por tipo
+            assertThat(slot.targetTss()).isGreaterThanOrEqualTo(0.0);
+        });
+        // no máximo uma sessão-chave; dias distintos entre os slots com dia atribuído
+        assertThat(sessoes.stream().filter(SessionSlot::chave).count()).isLessThanOrEqualTo(1L);
+        long comDia = sessoes.stream().filter(s -> s.day() != null).count();
+        long diasDistintos = sessoes.stream().map(SessionSlot::day).filter(java.util.Objects::nonNull).distinct().count();
+        assertThat(diasDistintos).as("dias sem duplicata em '%s'", caso.label()).isEqualTo(comDia);
+    }
+
     static Stream<GoldenCase> casos() {
         return Stream.of(
                 // --- Periodizacao completa: casos tipicos por fase ---
