@@ -10,6 +10,9 @@ import br.com.menthoros.backend.entity.PlanoMetaDados;
 import br.com.menthoros.backend.entity.Prova;
 import br.com.menthoros.backend.entity.RevisaoSemanal;
 import br.com.menthoros.backend.entity.TreinoRealizado;
+import br.com.menthoros.backend.domain.planner.SessionSlot;
+import br.com.menthoros.backend.domain.planner.WeekPlanSkeleton;
+import java.time.DayOfWeek;
 import br.com.menthoros.backend.enums.DiaSemana;
 import br.com.menthoros.backend.enums.TipoTreino;
 import br.com.menthoros.backend.services.helper.IntervaladoElegibilidadeService;
@@ -169,13 +172,20 @@ public class PlanoTreinoPromptBuilder {
 
     public PromptGerado buildOptimizedPrompt(Atleta atleta, PlanoMetaDados metaDados, Prova provaAlvo,
                                              LocalDate inicioSemana, List<DiaSemana> diasEfetivos) {
-        return buildOptimizedPrompt(atleta, metaDados, provaAlvo, inicioSemana, diasEfetivos, null, null);
+        return buildOptimizedPrompt(atleta, metaDados, provaAlvo, inicioSemana, diasEfetivos, null, null, null);
     }
 
     public PromptGerado buildOptimizedPrompt(Atleta atleta, PlanoMetaDados metaDados, Prova provaAlvo,
                                              LocalDate inicioSemana, List<DiaSemana> diasEfetivos,
                                              @Nullable DecisaoProgressao decisaoProgressao) {
-        return buildOptimizedPrompt(atleta, metaDados, provaAlvo, inicioSemana, diasEfetivos, decisaoProgressao, null);
+        return buildOptimizedPrompt(atleta, metaDados, provaAlvo, inicioSemana, diasEfetivos, decisaoProgressao, null, null);
+    }
+
+    public PromptGerado buildOptimizedPrompt(Atleta atleta, PlanoMetaDados metaDados, Prova provaAlvo,
+                                             LocalDate inicioSemana, List<DiaSemana> diasEfetivos,
+                                             @Nullable DecisaoProgressao decisaoProgressao,
+                                             @Nullable RevisaoSemanal revisaoConsumida) {
+        return buildOptimizedPrompt(atleta, metaDados, provaAlvo, inicioSemana, diasEfetivos, decisaoProgressao, revisaoConsumida, null);
     }
 
     /**
@@ -186,7 +196,8 @@ public class PlanoTreinoPromptBuilder {
     public PromptGerado buildOptimizedPrompt(Atleta atleta, PlanoMetaDados metaDados, Prova provaAlvo,
                                              LocalDate inicioSemana, List<DiaSemana> diasEfetivos,
                                              @Nullable DecisaoProgressao decisaoProgressao,
-                                             @Nullable RevisaoSemanal revisaoConsumida) {
+                                             @Nullable RevisaoSemanal revisaoConsumida,
+                                             @Nullable WeekPlanSkeleton skeleton) {
         var ctx = treinoHistoricoProvider.prepararContexto(atleta);
 
         // DECISÃO INTERVALADO — avaliação determinística pré-LLM (5 portões fisiológicos + readiness)
@@ -353,6 +364,7 @@ public class PlanoTreinoPromptBuilder {
         // 10. Montar histórico completo: regras no TOPO, depois alertas, depois dados
         StringBuilder historicoFinal = new StringBuilder();
         historicoFinal.append(formatarBlocoRegras(regras));
+        historicoFinal.append(formatarBlocoSlots(skeleton != null ? skeleton.sessions() : null)); // vazio quando skeleton null (flag off) → prompt legado (CA9)
         historicoFinal.append(alertasObrigatorios);
         historicoFinal.append(hierarquiaDecisao);
         historicoFinal.append(eventoCompetitivoSemana);
@@ -419,6 +431,44 @@ public class PlanoTreinoPromptBuilder {
         sb.append("\n(Estas regras são determinísticas, baseadas em dados reais do atleta, e ");
         sb.append("SUBSTITUEM qualquer raciocínio independente. Não as viole.)\n\n");
         return sb.toString();
+    }
+
+    /**
+     * Bloco mandatório da estrutura prescritiva do planner (planner-engine-enforcement §3). Renderiza
+     * os {@link SessionSlot} (dia/tipo/TSS/zona) quando o skeleton está presente; VAZIO quando
+     * {@code skeleton == null} (flag off) — nesse caso o prompt é idêntico ao legado (CA9).
+     */
+    static String formatarBlocoSlots(@Nullable List<SessionSlot> sessoes) {
+        if (sessoes == null || sessoes.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("## 📅 ESTRUTURA OBRIGATÓRIA DA SEMANA (planner)\n\n");
+        sb.append("Gere exatamente estas sessões, respeitando dia, tipo, TSS-alvo e zona de cada uma:\n\n");
+        for (SessionSlot s : sessoes) {
+            sb.append(String.format("- %s: %s — TSS ~%.0f, %s%s%s%n",
+                    s.day() != null ? diaEmPortugues(s.day()) : "(dia a definir)",
+                    s.sessionType(),
+                    s.targetTss(),
+                    s.intensityZone() != null ? s.intensityZone() : "zona a definir",
+                    s.durationMinutes() != null ? String.format(", ~%dmin", s.durationMinutes()) : "",
+                    s.chave() ? " [SESSÃO-CHAVE]" : ""));
+        }
+        sb.append("\n(Estrutura determinística do planner — não altere dia/tipo/TSS/zona; preencha apenas ");
+        sb.append("a estrutura fina de cada sessão.)\n\n");
+        return sb.toString();
+    }
+
+    private static String diaEmPortugues(DayOfWeek dia) {
+        return switch (dia) {
+            case MONDAY -> "Segunda";
+            case TUESDAY -> "Terça";
+            case WEDNESDAY -> "Quarta";
+            case THURSDAY -> "Quinta";
+            case FRIDAY -> "Sexta";
+            case SATURDAY -> "Sábado";
+            case SUNDAY -> "Domingo";
+        };
     }
 
     private String formatarHistoricoTreinos(List<TreinoRealizado> treinosRecentes) {

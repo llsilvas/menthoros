@@ -122,7 +122,7 @@ class PlanoMetadadosCacheIT extends AbstractIntegrationTest {
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any()))
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new br.com.menthoros.backend.exception.LLMException("provedor indisponível"));
 
         assertThatThrownBy(() -> planoService.gerarPlanoTreino(

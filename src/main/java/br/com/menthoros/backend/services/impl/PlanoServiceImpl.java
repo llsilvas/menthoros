@@ -25,6 +25,10 @@ import br.com.menthoros.backend.services.PlanoService;
 import br.com.menthoros.backend.services.helper.LlmConcurrencyLimiter;
 import br.com.menthoros.backend.services.helper.PlanGenerationContext;
 import br.com.menthoros.backend.services.helper.PlanGenerationContextLoader;
+import br.com.menthoros.backend.services.helper.PlannerShadowService;
+import br.com.menthoros.backend.domain.planner.WeekPlanSkeleton;
+import org.jspecify.annotations.Nullable;
+import org.springframework.beans.factory.annotation.Value;
 import br.com.menthoros.backend.services.helper.PlanGenerationPersister;
 import br.com.menthoros.backend.multitenancy.TenantContext;
 import br.com.menthoros.backend.config.core.WorkoutAnalysisProperties;
@@ -60,6 +64,12 @@ public class PlanoServiceImpl implements PlanoService {
     private final ApplicationEventPublisher eventPublisher;
     private final AiWorkoutAnalysisRepository aiWorkoutAnalysisRepository;
     private final WorkoutAnalysisProperties workoutAnalysisProperties;
+    private final PlannerShadowService plannerShadowService;
+
+    // planner-engine-enforcement §3: com enabled=true, o WeekPlanSkeleton é computado ANTES do prompt
+    // e injetado como bloco mandatório. Default false — rollout gated (tasks 8.4).
+    @Value("${planner-engine.enabled:false}")
+    private boolean plannerEnabled;
 
     /**
      * Idempotent: YES — leitura pura.
@@ -138,17 +148,39 @@ public class PlanoServiceImpl implements PlanoService {
         }
     }
 
+    /**
+     * Computa o {@link WeekPlanSkeleton} pré-prompt quando {@code planner-engine.enabled=true}.
+     * Fail-open (design Decisão 3): qualquer falha aqui NÃO derruba a geração — devolve {@code null}
+     * e o prompt cai no caminho legado. Onboarding vazio: o planner usa os dias disponíveis do atleta.
+     */
+    @Nullable
+    private WeekPlanSkeleton computarSkeletonSeHabilitado(PlanGenerationContext ctx) {
+        if (!plannerEnabled) {
+            return null;
+        }
+        try {
+            return plannerShadowService.computarSkeleton(
+                    ctx.dados(), ctx.decisaoProgressao(), ctx.semanaInicio(), Optional.empty());
+        } catch (Exception e) {
+            log.warn("Falha ao computar skeleton do planner (fail-open, seguindo sem ele): {}", e.getMessage());
+            return null;
+        }
+    }
+
     private PlanoSemanalLlmDto gerarPlanoSemanal(PlanGenerationContext ctx, ModoGeracaoPlano modoGeracao) {
         UUID atletaId = ctx.atleta().getId();
         try {
             log.info("Iniciando geração de plano para atleta: {}", atletaId);
+
+            // planner-engine-enforcement §3: skeleton prescritivo computado ANTES do prompt (fail-open).
+            WeekPlanSkeleton skeleton = computarSkeletonSeHabilitado(ctx);
 
             // Faixa interativa do limiter, só em volta da chamada ao LLM (nunca das transações).
             // Para gerações vindas do lote é no-op: a thread já segura permits (reentrância).
             PlanoSemanalLlmDto planoDto = llmConcurrencyLimiter.executarInterativo(() ->
                     iaService.geraPlanoSemanalAvancado(
                             ctx.atleta(), ctx.metaDados(), ctx.proximaProva(), modoGeracao,
-                            ctx.decisaoProgressao(), ctx.revisaoConsumida(), ctx.semanaInicio()));
+                            ctx.decisaoProgressao(), ctx.revisaoConsumida(), ctx.semanaInicio(), skeleton));
 
             validaPlanoGerado(planoDto);
             return planoDto;

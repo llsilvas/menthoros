@@ -111,7 +111,7 @@ class LotePlanosFundadorasIT extends AbstractIntegrationTest {
 
     @BeforeEach
     void instrumentarLlm() {
-        when(iaService.geraPlanoSemanalAvancado(any(), any(), any(), any(), any(), any(), any()))
+        when(iaService.geraPlanoSemanalAvancado(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> {
                     int emVoo = llmEmVoo.incrementAndGet();
                     picoLlmEmVoo.accumulateAndGet(emVoo, Math::max);
@@ -283,7 +283,7 @@ class LotePlanosFundadorasIT extends AbstractIntegrationTest {
         // segura; a chegada é sinalizada por latch, não por polling (achado do clean-code no QA).
         CountDownLatch noveNoLlm = new CountDownLatch(9);
         AtomicInteger loteNoLlm = new AtomicInteger();
-        when(iaService.geraPlanoSemanalAvancado(any(), any(), any(), any(), any(), any(), any()))
+        when(iaService.geraPlanoSemanalAvancado(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> {
                     if (tenantsDoLote.contains(TenantContext.getTenantId())) {
                         loteNoLlm.incrementAndGet();
@@ -363,7 +363,7 @@ class LotePlanosFundadorasIT extends AbstractIntegrationTest {
 
         CountDownLatch segura = new CountDownLatch(1);
         AtomicInteger noLlm = new AtomicInteger();
-        when(iaService.geraPlanoSemanalAvancado(any(), any(), any(), any(), any(), any(), any()))
+        when(iaService.geraPlanoSemanalAvancado(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> {
                     noLlm.incrementAndGet();
                     segura.await(10, TimeUnit.SECONDS);
