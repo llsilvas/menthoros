@@ -191,6 +191,27 @@ public class PlannerShadowService {
         return plannerEngine.planWeek(snapshot);
     }
 
+    /**
+     * Compliance PRE-redistribuicao (planner-engine-enforcement secao 4, estagio 1): reusa o
+     * mapeamento LLM->snapshot e o {@link SkeletonComplianceChecker#checkPreRedistribution} para
+     * comparar o plano recem-gerado ao {@code skeleton} prescrito. As violacoes retornadas alimentam
+     * o feedback do retry em {@code IaServiceImpl} — este metodo nao decide sobre retry nem persiste.
+     *
+     * <p>Idempotent: YES (puro/leitura). Side Effects: NONE. Tenant-aware: recebe o {@code Atleta}
+     * ja resolvido pelo chamador.
+     */
+    public List<PlannerViolation> checkPreRedistribution(PlanoSemanalLlmDto planoGeradoPeloLlm,
+                                                         WeekPlanSkeleton skeleton,
+                                                         Atleta atleta,
+                                                         LocalDate semanaInicio) {
+        ComplianceContext context = new ComplianceContext(
+                skeleton.provaDeterminante(),
+                resolverConstraints(atleta),
+                semanaInicio);
+        GeneratedPlanSnapshot planoGeradoSnapshot = mapPlanoGerado(planoGeradoPeloLlm, semanaInicio);
+        return complianceChecker.checkPreRedistribution(planoGeradoSnapshot, skeleton, context);
+    }
+
     // --- Mapeamento entity -> record (anti-corruption layer, design.md Decisao 17) ---
 
     private PlannerInputSnapshot mapToSnapshot(Atleta atleta,

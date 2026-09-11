@@ -49,6 +49,7 @@ class IaServiceImplSchemaTest {
     @Mock private PlanoEstruturaReparador estruturaReparador;
     @Mock private PlanoResilienceService planoResilienceService;
     @Mock private LlmUsageLogger llmUsageLogger;
+    @Mock private br.com.menthoros.backend.services.helper.PlannerShadowService plannerShadowService;
 
     private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
@@ -63,7 +64,7 @@ class IaServiceImplSchemaTest {
         IaServiceImpl service = new IaServiceImpl(modelRouter, promptBuilder, atletaRepository,
                 regraGeracaoTreino, treinoHistoricoProvider, paceHistoricoFormatter, paceValidator,
                 zonaTreinoService, planQualityChecker, estruturaReparador, planoResilienceService,
-                meterRegistry, llmUsageLogger);
+                meterRegistry, llmUsageLogger, plannerShadowService);
 
         Method build = IaServiceImpl.class.getDeclaredMethod("buildSchemaTightInlineOrDefs");
         build.setAccessible(true);
@@ -87,7 +88,7 @@ class IaServiceImplSchemaTest {
         IaServiceImpl service = new IaServiceImpl(modelRouter, promptBuilder, atletaRepository,
                 regraGeracaoTreino, treinoHistoricoProvider, paceHistoricoFormatter, paceValidator,
                 zonaTreinoService, planQualityChecker, estruturaReparador, planoResilienceService,
-                meterRegistry, llmUsageLogger);
+                meterRegistry, llmUsageLogger, plannerShadowService);
 
         Method build = IaServiceImpl.class.getDeclaredMethod("buildSchemaTightInlineOrDefs");
         build.setAccessible(true);

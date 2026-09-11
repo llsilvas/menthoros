@@ -94,7 +94,8 @@ class PlanoServiceTenantTest {
         var llmConcurrencyLimiter = new br.com.menthoros.backend.services.helper.LlmConcurrencyLimiter(4, 2, 1);
         planoService = new PlanoServiceImpl(iaService, llmConcurrencyLimiter, contextLoader, persister, planoSemanalRepository,
                 treinoRealizadoRepository, planoSemanalMapper, eventPublisher, aiWorkoutAnalysisRepository,
-                workoutAnalysisProperties, plannerShadowService);
+                workoutAnalysisProperties, plannerShadowService,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 
     private UUID tenantA;

@@ -60,6 +60,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -133,6 +135,7 @@ class PlanoServiceImplTest {
     @org.mockito.Mock
     private br.com.menthoros.backend.services.plano.ProvaNoPlanoService provaNoPlanoService;
     private PlanoServiceImpl planoService;
+    private io.micrometer.core.instrument.simple.SimpleMeterRegistry meterRegistry;
 
     private UUID tenantId;
 
@@ -154,9 +157,11 @@ class PlanoServiceImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(persister, "migrateExistingEnabled", true);
         llmConcurrencyLimiter = org.mockito.Mockito.spy(
                 new br.com.menthoros.backend.services.helper.LlmConcurrencyLimiter(4, 2, 1));
+        meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         planoService = new PlanoServiceImpl(iaService, llmConcurrencyLimiter, contextLoader, persister, planoSemanalRepository,
                 treinoRealizadoRepository, planoSemanalMapper, eventPublisher, aiWorkoutAnalysisRepository,
-                workoutAnalysisProperties, plannerShadowService);
+                workoutAnalysisProperties, plannerShadowService,
+                meterRegistry);
 
         tenantId = UUID.randomUUID();
         TenantContext.setTenantId(tenantId);
@@ -172,6 +177,71 @@ class PlanoServiceImplTest {
     @AfterEach
     void tearDownTenant() {
         TenantContext.clear();
+    }
+
+    @Nested
+    @DisplayName("computarSkeletonSeHabilitado — matriz fail-open (planner-engine-enforcement §4, Decisao 3)")
+    class ComputarSkeletonSeHabilitado {
+
+        private br.com.menthoros.backend.services.helper.PlanGenerationContext ctx() {
+            var atleta = criarAtletaMock(UUID.randomUUID());
+            var dados = new br.com.menthoros.backend.dto.input.DadosPlanoDto(
+                    atleta, LocalDate.now(), null, Collections.emptyList(), criarPlanoMetaDadosMock());
+            return new br.com.menthoros.backend.services.helper.PlanGenerationContext(
+                    dados, null, LocalDate.of(2026, 9, 7), null, null);
+        }
+
+        private br.com.menthoros.backend.domain.planner.WeekPlanSkeleton invoke() throws Exception {
+            var m = PlanoServiceImpl.class.getDeclaredMethod("computarSkeletonSeHabilitado",
+                    br.com.menthoros.backend.services.helper.PlanGenerationContext.class);
+            m.setAccessible(true);
+            try {
+                return (br.com.menthoros.backend.domain.planner.WeekPlanSkeleton) m.invoke(planoService, ctx());
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                if (e.getCause() instanceof RuntimeException re) throw re;
+                throw e;
+            }
+        }
+
+        private double fallbackCount() {
+            var c = meterRegistry.find("planner.fallback_legacy.count").counter();
+            return c == null ? 0.0 : c.count();
+        }
+
+        @Test
+        @DisplayName("flag off: skeleton null, planner nem é chamado, sem métrica de fallback")
+        void flagOff() throws Exception {
+            org.springframework.test.util.ReflectionTestUtils.setField(planoService, "plannerEnabled", false);
+
+            assertNull(invoke());
+            verify(plannerShadowService, never()).computarSkeleton(any(), any(), any(), any());
+            assertThat(fallbackCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("planner falha ANTES do LLM + fail-open=true: null (pipeline legado) + planner.fallback_legacy.count")
+        void falhaComFailOpen() throws Exception {
+            org.springframework.test.util.ReflectionTestUtils.setField(planoService, "plannerEnabled", true);
+            org.springframework.test.util.ReflectionTestUtils.setField(planoService, "plannerFailOpen", true);
+            when(plannerShadowService.computarSkeleton(any(), any(), any(), any()))
+                    .thenThrow(new IllegalStateException("planner indisponível"));
+
+            assertNull(invoke());
+            assertThat(fallbackCount()).isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("planner falha ANTES do LLM + fail-open=false: erro de domínio, nada gerado, sem fallback")
+        void falhaComFailClosed() {
+            org.springframework.test.util.ReflectionTestUtils.setField(planoService, "plannerEnabled", true);
+            org.springframework.test.util.ReflectionTestUtils.setField(planoService, "plannerFailOpen", false);
+            when(plannerShadowService.computarSkeleton(any(), any(), any(), any()))
+                    .thenThrow(new IllegalStateException("planner indisponível"));
+
+            assertThatThrownBy(this::invoke)
+                    .isInstanceOf(br.com.menthoros.backend.exception.DomainRuleViolationException.class);
+            assertThat(fallbackCount()).isZero();
+        }
     }
 
     private void mockMetricasAgregadasEAlertas(PlanoMetaDados metaDados) {

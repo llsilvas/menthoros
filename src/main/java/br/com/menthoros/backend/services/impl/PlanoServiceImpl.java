@@ -13,6 +13,7 @@ import br.com.menthoros.backend.enums.PlanoStatus;
 import br.com.menthoros.backend.events.PlanoDeletadoEvent;
 import br.com.menthoros.backend.exception.DomainNotFoundException;
 import br.com.menthoros.backend.exception.DomainRuleViolationException;
+import io.micrometer.core.instrument.MeterRegistry;
 import br.com.menthoros.backend.exception.LLMException;
 import br.com.menthoros.backend.exception.PlanoJaExistenteException;
 import br.com.menthoros.backend.exception.ResourceNotFoundException;
@@ -65,11 +66,17 @@ public class PlanoServiceImpl implements PlanoService {
     private final AiWorkoutAnalysisRepository aiWorkoutAnalysisRepository;
     private final WorkoutAnalysisProperties workoutAnalysisProperties;
     private final PlannerShadowService plannerShadowService;
+    private final MeterRegistry meterRegistry;
 
     // planner-engine-enforcement §3: com enabled=true, o WeekPlanSkeleton é computado ANTES do prompt
     // e injetado como bloco mandatório. Default false — rollout gated (tasks 8.4).
     @Value("${planner-engine.enabled:false}")
     private boolean plannerEnabled;
+
+    // planner-engine-enforcement §4 (Decisao 3): fail-open=true (default) => falha do planner ANTES do
+    // LLM cai no pipeline legado; false => erro de dominio antes de gerar. Rollout gated (tasks 8.4).
+    @Value("${planner-engine.fail-open:true}")
+    private boolean plannerFailOpen;
 
     /**
      * Idempotent: YES — leitura pura.
@@ -162,7 +169,15 @@ public class PlanoServiceImpl implements PlanoService {
             return plannerShadowService.computarSkeleton(
                     ctx.dados(), ctx.decisaoProgressao(), ctx.semanaInicio(), Optional.empty());
         } catch (Exception e) {
-            log.warn("Falha ao computar skeleton do planner (fail-open, seguindo sem ele): {}", e.getMessage());
+            // Planner falha ANTES do LLM (design Decisao 3, matriz fail-open):
+            //   fail-open=true  -> null => pipeline legado (1ª e unica geracao) + planner.fallback_legacy.count
+            //   fail-open=false -> erro de dominio, nada gerado
+            if (!plannerFailOpen) {
+                throw new DomainRuleViolationException(
+                        "Não foi possível preparar a estrutura do plano (planner indisponível).");
+            }
+            meterRegistry.counter("planner.fallback_legacy.count").increment();
+            log.warn("Falha ao computar skeleton do planner (fail-open, seguindo com pipeline legado): {}", e.getMessage());
             return null;
         }
     }
