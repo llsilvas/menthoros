@@ -25,6 +25,9 @@ import br.com.menthoros.backend.enums.TipoTreino;
 import br.com.menthoros.backend.events.RevisaoConsumidaEvent;
 import br.com.menthoros.backend.exception.DomainNotFoundException;
 import br.com.menthoros.backend.exception.DomainRuleViolationException;
+import br.com.menthoros.backend.domain.compliance.PlannerComplianceStatus;
+import br.com.menthoros.backend.domain.compliance.PlannerViolation;
+import io.micrometer.core.instrument.MeterRegistry;
 import br.com.menthoros.backend.exception.PlanoJaExistenteException;
 import br.com.menthoros.backend.mapper.PlanoSemanalMapper;
 import br.com.menthoros.backend.mapper.TreinoMapper;
@@ -85,12 +88,23 @@ public class PlanGenerationPersister {
     private final PlanoReviewService planoReviewService;
     private final ApplicationEventPublisher eventPublisher;
     private final ProvaNoPlanoService provaNoPlanoService;
+    private final MeterRegistry meterRegistry;
 
     @Value("${onboarding.auto-approve.enabled:true}")
     private boolean autoApproveEnabled;
 
     @Value("${onboarding.migrate-existing.enabled:true}")
     private boolean migrateExistingEnabled;
+
+    // planner-engine-enforcement §5: com enabled=true, o estagio 2 (compliance pos-redistribuicao)
+    // roda como ultimo passo antes de aprovar/salvar. Default false — rollout gated (tasks 8.4).
+    @Value("${planner-engine.enabled:false}")
+    private boolean plannerEnabled;
+
+    // fail-open=true (default): violacao soft do estagio 2 => FAILED + requiresCoachReview (persiste,
+    // exige revisao); false => erro de dominio, nada persistido (Decisao 3).
+    @Value("${planner-engine.fail-open:true}")
+    private boolean plannerFailOpen;
 
     /**
      * Persiste um plano completo gerado pela LLM: período, redistribuição de treinos conforme o
@@ -146,6 +160,15 @@ public class PlanGenerationPersister {
         Optional<OnboardingContext> onboardingContext = resolverOnboardingContext(atleta.getId(), tenantId);
         Optional<WeekPlanSkeleton> weekPlanSkeleton = plannerShadowService.aplicarShadow(
                 plano, planoDto, dadosPlano, decisaoProgressao, periodo.inicio(), false, onboardingContext);
+
+        // planner-engine-enforcement §5 (Decisao 2): estagio 2 terminal — roda sobre os treinos ja
+        // redistribuidos E com prova garantida (plano.getTreinosPlanejados()), como ULTIMO passo antes
+        // de aprovar/salvar/emitir eventos. So enforca com enabled=true; caso contrario e no-op e o
+        // shadow acima segue como auditoria (CA9). Usa periodo.inicio() como referenceDate (nunca now()).
+        if (plannerEnabled) {
+            weekPlanSkeleton.ifPresent(skeleton ->
+                    aplicarEnforcementEstagio2(plano, skeleton, atleta, periodo.inicio()));
+        }
 
         // Auto-approve Cenario A (athlete-onboarding-baseline CA5, Decisao 7).
         onboardingContext.ifPresent(context -> aplicarAutoApproveSeElegivel(plano, context, weekPlanSkeleton, tenantId));
@@ -229,11 +252,52 @@ public class PlanGenerationPersister {
         if (weekPlanSkeleton.isEmpty()) {
             return;
         }
+        // Veto do enforcement (planner-engine-enforcement §5, Codex blocker 3): plano que o estagio 2
+        // marcou FAILED / requiresCoachReview NUNCA e auto-aprovado — entra em AGUARDANDO_REVISAO.
+        if (PlannerComplianceStatus.FAILED.name().equals(plano.getPlannerComplianceStatus())
+                || Boolean.TRUE.equals(plano.getPlannerRequiresCoachReview())) {
+            return;
+        }
         WeekPlanSkeleton skeleton = weekPlanSkeleton.get();
         if (skeleton.requiresCoachReview() || skeleton.injuryRisk().level() == InjuryRiskLevel.HIGH_RISK) {
             return;
         }
         planoReviewService.aprovarTransicao(plano, tenantId, OrigemAprovacao.AUTO_CONFIANCA_ALTA);
+    }
+
+    /**
+     * Estagio 2 do enforcement (planner-engine-enforcement §5, Decisao 2): compliance
+     * POS-redistribuicao, terminal (sem retry), sobre os treinos finais do {@code plano} — ja
+     * redistribuidos e com prova garantida. Roda somente com {@code planner-engine.enabled=true}.
+     *
+     * <p>Todas as {@code PlannerViolation} do estagio 2 sao revisaveis (soft) nesta change — as
+     * invariantes obrigatorias (hard) sao os checks estruturais do estagio 1, ja fail-closed em
+     * {@code IaServiceImpl}. Matriz fail-open (Decisao 3): {@code fail-open=true} persiste
+     * {@code FAILED} + {@code requiresCoachReview} (veta auto-aprovacao); {@code fail-open=false}
+     * lanca erro de dominio antes de persistir. Sem violacao -> {@code PASSED}.
+     *
+     * <p>Idempotent: YES (leitura + mutacao in-memory deterministica). Side Effects: mutacao dos
+     * campos {@code planner_*} de {@code plano}; metrica Micrometer. Tenant-aware: opera sobre objetos
+     * ja resolvidos.
+     */
+    private void aplicarEnforcementEstagio2(PlanoSemanal plano, WeekPlanSkeleton skeleton,
+                                            Atleta atleta, LocalDate referenceDate) {
+        List<PlannerViolation> violacoes = plannerShadowService.checkPostRedistribution(
+                plano.getTreinosPlanejados(), skeleton, atleta, referenceDate);
+        if (violacoes.isEmpty()) {
+            plano.setPlannerComplianceStatus(PlannerComplianceStatus.PASSED.name());
+            return;
+        }
+        if (!plannerFailOpen) {
+            String motivos = violacoes.stream()
+                    .map(v -> v.key() + ": " + v.mensagem())
+                    .collect(java.util.stream.Collectors.joining("; "));
+            throw new DomainRuleViolationException(
+                    "Plano viola a estrutura prescrita apos redistribuicao: " + motivos);
+        }
+        meterRegistry.counter("planner.compliance.failure.count", "stage", "POST").increment();
+        plano.setPlannerComplianceStatus(PlannerComplianceStatus.FAILED.name());
+        plano.setPlannerRequiresCoachReview(true);
     }
 
     private record PeriodoPlano(LocalDate inicio, LocalDate fim) {

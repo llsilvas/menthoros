@@ -149,15 +149,15 @@ class PlanoServiceImplTest {
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         persister = new br.com.menthoros.backend.services.helper.PlanGenerationPersister(
                 planoSemanalRepository, planoMetadadosRepository, treinoMapper, planoSemanalMapper,
                 redistribuicaoHelper, metricasAlertaService, metricasAgregadasService, plannerShadowService,
-                onboardingService, planoReviewService, eventPublisher, provaNoPlanoService);
+                onboardingService, planoReviewService, eventPublisher, provaNoPlanoService, meterRegistry);
         org.springframework.test.util.ReflectionTestUtils.setField(persister, "autoApproveEnabled", true);
         org.springframework.test.util.ReflectionTestUtils.setField(persister, "migrateExistingEnabled", true);
         llmConcurrencyLimiter = org.mockito.Mockito.spy(
                 new br.com.menthoros.backend.services.helper.LlmConcurrencyLimiter(4, 2, 1));
-        meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         planoService = new PlanoServiceImpl(iaService, llmConcurrencyLimiter, contextLoader, persister, planoSemanalRepository,
                 treinoRealizadoRepository, planoSemanalMapper, eventPublisher, aiWorkoutAnalysisRepository,
                 workoutAnalysisProperties, plannerShadowService,

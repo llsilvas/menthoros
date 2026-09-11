@@ -212,6 +212,27 @@ public class PlannerShadowService {
         return complianceChecker.checkPreRedistribution(planoGeradoSnapshot, skeleton, context);
     }
 
+    /**
+     * Compliance POS-redistribuicao (planner-engine-enforcement §5, estagio 2, terminal): reusa o
+     * mapeamento dos treinos ja persistidos no plano (redistribuidos + prova garantida) e o
+     * {@link SkeletonComplianceChecker#checkPostRedistribution}. O caller (persister) decide sobre
+     * bloqueio/FAILED/PASSED conforme a matriz fail-open — este metodo nao persiste nem decide.
+     *
+     * <p>Idempotent: YES (puro/leitura). Side Effects: NONE. Tenant-aware: recebe o {@code Atleta}
+     * ja resolvido pelo chamador.
+     */
+    public List<PlannerViolation> checkPostRedistribution(List<TreinoPlanejado> treinosRedistribuidos,
+                                                          WeekPlanSkeleton skeleton,
+                                                          Atleta atleta,
+                                                          LocalDate semanaInicio) {
+        ComplianceContext context = new ComplianceContext(
+                skeleton.provaDeterminante(),
+                resolverConstraints(atleta),
+                semanaInicio);
+        GeneratedPlanSnapshot redistribuidoSnapshot = mapTreinosRedistribuidos(treinosRedistribuidos);
+        return complianceChecker.checkPostRedistribution(redistribuidoSnapshot, skeleton, context);
+    }
+
     // --- Mapeamento entity -> record (anti-corruption layer, design.md Decisao 17) ---
 
     private PlannerInputSnapshot mapToSnapshot(Atleta atleta,
