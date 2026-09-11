@@ -168,7 +168,7 @@ public class PlannerShadowService {
                 ? PlannerComplianceStatus.COMPLIANT
                 : PlannerComplianceStatus.VIOLATIONS_DETECTED;
 
-        persistirAuditoria(plano, skeleton, status, todasViolacoes.size());
+        persistirAuditoria(plano, skeleton, status, todasViolacoes);
         registrarMetricas(skeleton, status, violacoesPre, violacoesPost, batch);
         registrarDivergenciaDeFase(skeleton, atleta, semanaInicio);
 
@@ -189,6 +189,48 @@ public class PlannerShadowService {
                                              Optional<br.com.menthoros.backend.domain.planner.OnboardingContext> onboardingContext) {
         PlannerInputSnapshot snapshot = mapToSnapshot(dadosPlano.atleta(), dadosPlano, decisaoProgressao, semanaInicio, onboardingContext);
         return plannerEngine.planWeek(snapshot);
+    }
+
+    /**
+     * Compliance PRE-redistribuicao (planner-engine-enforcement secao 4, estagio 1): reusa o
+     * mapeamento LLM->snapshot e o {@link SkeletonComplianceChecker#checkPreRedistribution} para
+     * comparar o plano recem-gerado ao {@code skeleton} prescrito. As violacoes retornadas alimentam
+     * o feedback do retry em {@code IaServiceImpl} — este metodo nao decide sobre retry nem persiste.
+     *
+     * <p>Idempotent: YES (puro/leitura). Side Effects: NONE. Tenant-aware: recebe o {@code Atleta}
+     * ja resolvido pelo chamador.
+     */
+    public List<PlannerViolation> checkPreRedistribution(PlanoSemanalLlmDto planoGeradoPeloLlm,
+                                                         WeekPlanSkeleton skeleton,
+                                                         Atleta atleta,
+                                                         LocalDate semanaInicio) {
+        ComplianceContext context = new ComplianceContext(
+                skeleton.provaDeterminante(),
+                resolverConstraints(atleta),
+                semanaInicio);
+        GeneratedPlanSnapshot planoGeradoSnapshot = mapPlanoGerado(planoGeradoPeloLlm, semanaInicio);
+        return complianceChecker.checkPreRedistribution(planoGeradoSnapshot, skeleton, context);
+    }
+
+    /**
+     * Compliance POS-redistribuicao (planner-engine-enforcement §5, estagio 2, terminal): reusa o
+     * mapeamento dos treinos ja persistidos no plano (redistribuidos + prova garantida) e o
+     * {@link SkeletonComplianceChecker#checkPostRedistribution}. O caller (persister) decide sobre
+     * bloqueio/FAILED/PASSED conforme a matriz fail-open — este metodo nao persiste nem decide.
+     *
+     * <p>Idempotent: YES (puro/leitura). Side Effects: NONE. Tenant-aware: recebe o {@code Atleta}
+     * ja resolvido pelo chamador.
+     */
+    public List<PlannerViolation> checkPostRedistribution(List<TreinoPlanejado> treinosRedistribuidos,
+                                                          WeekPlanSkeleton skeleton,
+                                                          Atleta atleta,
+                                                          LocalDate semanaInicio) {
+        ComplianceContext context = new ComplianceContext(
+                skeleton.provaDeterminante(),
+                resolverConstraints(atleta),
+                semanaInicio);
+        GeneratedPlanSnapshot redistribuidoSnapshot = mapTreinosRedistribuidos(treinosRedistribuidos);
+        return complianceChecker.checkPostRedistribution(redistribuidoSnapshot, skeleton, context);
     }
 
     // --- Mapeamento entity -> record (anti-corruption layer, design.md Decisao 17) ---
@@ -294,7 +336,7 @@ public class PlannerShadowService {
     // --- Auditoria e metricas ---
 
     private void persistirAuditoria(PlanoSemanal plano, WeekPlanSkeleton skeleton,
-                                     PlannerComplianceStatus status, int violationCount) throws Exception {
+                                     PlannerComplianceStatus status, List<PlannerViolation> violacoes) throws Exception {
         plano.setPlannerVersion(PlannerVersion.CURRENT);
         plano.setPlannerPhase(skeleton.phase().name());
         plano.setPlannerRequiresCoachReview(skeleton.requiresCoachReview());
@@ -303,7 +345,7 @@ public class PlannerShadowService {
 
         PlannerAuditMetadata metadata = new PlannerAuditMetadata(
                 skeleton.phase(), skeleton.requiresCoachReview(), skeleton.coachReviewReason(),
-                status, violationCount, PlannerVersion.CURRENT);
+                status, violacoes.size(), List.copyOf(violacoes), PlannerVersion.CURRENT);
         plano.setPlannerMetadataJson(objectMapper.writeValueAsString(metadata));
     }
 

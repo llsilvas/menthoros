@@ -346,6 +346,65 @@ class RedistribuicaoTreinoHelperTest {
     }
 
 
+    @Test
+    @DisplayName("§5.3: SEMANA_ATUAL com dias-alvo dos slots — CONTINUO vai para o dia prescrito, nao o greedy")
+    void deveRespeitarDiaAlvoDoSlotNaRedistribuicao() {
+        LocalDate segunda = LocalDate.of(2025, 10, 6);
+        LocalDate semanaInicio = segunda;
+        LocalDate semanaFim = semanaInicio.plusDays(6);
+        // hoje = segunda -> dias validos (SEMANA_ATUAL): TERCA..DOMINGO
+
+        List<TreinoPlanejadoLlmDto> treinos = List.of(
+                criarTreinoMock("QUINTA", "LONGO"),
+                criarTreinoMock("QUINTA", "REGENERATIVO"),
+                criarTreinoMock("QUINTA", "CONTINUO")
+        );
+        List<DiaSemana> diasDisponiveis = List.of(
+                DiaSemana.TERCA, DiaSemana.QUARTA, DiaSemana.QUINTA,
+                DiaSemana.SEXTA, DiaSemana.SABADO, DiaSemana.DOMINGO);
+
+        // Skeleton prescreve CONTINUO na SEXTA; sem guia o greedy o colocaria na QUINTA (1o livre).
+        java.util.Map<br.com.menthoros.backend.enums.TipoTreino, DiaSemana> diasAlvo =
+                java.util.Map.of(br.com.menthoros.backend.enums.TipoTreino.CONTINUO, DiaSemana.SEXTA);
+
+        var resultado = redistribuicaoTreinoHelper.redistribuirTreinos(
+                treinos, diasDisponiveis, segunda, semanaInicio, semanaFim,
+                ModoGeracaoPlano.SEMANA_ATUAL, null, diasAlvo);
+
+        assertTrue(resultado.stream().anyMatch(
+                        t -> "CONTINUO".equals(t.tipoTreino()) && "SEXTA".equals(t.diaSemana())),
+                "CONTINUO deve cair no dia prescrito pelo SessionSlot (SEXTA)");
+    }
+
+    @Test
+    @DisplayName("§5.3: dia-alvo indisponivel/ocupado — cai no greedy de fallback (algoritmo inalterado)")
+    void deveCairNoFallbackQuandoDiaAlvoIndisponivel() {
+        LocalDate segunda = LocalDate.of(2025, 10, 6);
+        LocalDate semanaInicio = segunda;
+        LocalDate semanaFim = semanaInicio.plusDays(6);
+
+        List<TreinoPlanejadoLlmDto> treinos = List.of(
+                criarTreinoMock("QUINTA", "REGENERATIVO"),
+                criarTreinoMock("QUINTA", "CONTINUO")
+        );
+        List<DiaSemana> diasDisponiveis = List.of(DiaSemana.TERCA, DiaSemana.QUARTA);
+
+        // Slot pede CONTINUO no SABADO, que nao esta entre os dias validos -> fallback greedy.
+        java.util.Map<br.com.menthoros.backend.enums.TipoTreino, DiaSemana> diasAlvo =
+                java.util.Map.of(br.com.menthoros.backend.enums.TipoTreino.CONTINUO, DiaSemana.SABADO);
+
+        var resultado = redistribuicaoTreinoHelper.redistribuirTreinos(
+                treinos, diasDisponiveis, segunda, semanaInicio, semanaFim,
+                ModoGeracaoPlano.SEMANA_ATUAL, null, diasAlvo);
+
+        // CONTINUO ainda e alocado (num dos dias validos), nao descartado por causa do dia-alvo invalido.
+        assertTrue(resultado.stream().anyMatch(t -> "CONTINUO".equals(t.tipoTreino())),
+                "CONTINUO deve ser alocado via fallback quando o dia-alvo do slot nao esta disponivel");
+        assertTrue(resultado.stream().allMatch(
+                        t -> List.of("TERCA", "QUARTA").contains(t.diaSemana())),
+                "todos os treinos ficam nos dias validos");
+    }
+
     private TreinoPlanejadoLlmDto criarTreinoMock(String dia, String tipo) {
         return new TreinoPlanejadoLlmDto(
                 dia, tipo, "140-160% FCmáx", 100, 1.0, 7,

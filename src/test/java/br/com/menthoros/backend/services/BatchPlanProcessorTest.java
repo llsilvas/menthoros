@@ -293,6 +293,64 @@ class BatchPlanProcessorTest {
         }
     }
 
+    @Nested
+    @DisplayName("compliance do planner no lote (planner-engine-enforcement §6)")
+    class ComplianceNoLote {
+
+        // A falha de compliance (estagio 1 esgotado ou estagio 2 fail-closed) chega ao lote como
+        // DomainRuleViolationException — a mesma que gerarComResiliencia lanca ao esgotar o orcamento.
+        private static final String MSG_COMPLIANCE_INTERNA =
+                "Plano diverge da estrutura prescrita pelo planner: FASE_DIVERGENTE: esperado BASE; "
+                        + "TSS_FORA_DA_FAIXA: 600 fora de 350±10%";
+
+        @Test
+        @DisplayName("um atleta falha compliance apos retry → erro individual sanitizado; o outro conclui; CONCLUIDO_COM_ERROS")
+        void falhaComplianceIndividualNaoAbortaLote() {
+            UUID ok = atletaValido("Ana");
+            UUID falha = atletaValido("Bia");
+            when(planoService.gerarPlanoTreino(eq(ok), any())).thenReturn(planoComId());
+            when(planoService.gerarPlanoTreino(eq(falha), any()))
+                    .thenThrow(new DomainRuleViolationException(MSG_COMPLIANCE_INTERNA));
+
+            processor.processarLote(jobId, List.of(ok, falha), ModoGeracaoPlano.PROXIMA_SEMANA, tenantId);
+
+            verify(jobRepository).incrementarGerados(jobId);
+            verify(jobRepository).incrementarErros(jobId);
+            assertThat(statusFinalPersistido()).isEqualTo(BatchJobStatus.CONCLUIDO_COM_ERROS);
+
+            assertThat(geradosPersistidos())
+                    .extracting(br.com.menthoros.backend.dto.output.BatchJobStatusOutputDto.BatchGeradoItemDto::atletaNome)
+                    .containsExactly("Ana");
+
+            // Motivo sanitizado no relatorio; o detalhe tecnico (keys/mensagens de PlannerViolation)
+            // NUNCA vaza para o job — fica so no log estruturado.
+            assertThat(errosPersistidos())
+                    .extracting(br.com.menthoros.backend.dto.output.BatchJobStatusOutputDto.BatchErroItemDto::motivo)
+                    .containsExactly(BatchPlanProcessor.MOTIVO_ERRO_GERACAO);
+            assertThat(errosPersistidos().get(0).motivo())
+                    .doesNotContain("FASE_DIVERGENTE", "TSS_FORA_DA_FAIXA", "skeleton", "planner");
+        }
+
+        @Test
+        @DisplayName("falha de compliance conta para o corte por falhas consecutivas (degradacao real)")
+        void falhaComplianceContaNoCorte() {
+            UUID a1 = atletaValido("A1");
+            UUID a2 = atletaValido("A2");
+            UUID a3 = atletaValido("A3");
+            UUID a4 = UUID.randomUUID(); // nao stubado: so alcançado se o corte falhar
+            when(planoService.gerarPlanoTreino(any(), any()))
+                    .thenThrow(new DomainRuleViolationException(MSG_COMPLIANCE_INTERNA));
+
+            processor.processarLote(jobId, List.of(a1, a2, a3, a4), ModoGeracaoPlano.PROXIMA_SEMANA, tenantId);
+
+            verify(planoService, org.mockito.Mockito.times(3)).gerarPlanoTreino(any(), any());
+            assertThat(errosPersistidos())
+                    .extracting(br.com.menthoros.backend.dto.output.BatchJobStatusOutputDto.BatchErroItemDto::motivo)
+                    .filteredOn(m -> m.equals(BatchPlanProcessor.MOTIVO_LOTE_INTERROMPIDO))
+                    .hasSize(1);
+        }
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────
 
     private UUID atletaValido(String nome) {

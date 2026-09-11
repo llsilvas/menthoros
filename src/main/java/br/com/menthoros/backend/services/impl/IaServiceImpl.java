@@ -27,6 +27,8 @@ import br.com.menthoros.backend.services.helper.RegraGeracaoTreino;
 import br.com.menthoros.backend.services.helper.TreinoHistoricoProvider;
 import br.com.menthoros.backend.services.helper.PlanoEstruturaReparador;
 import br.com.menthoros.backend.services.helper.PlanoResilienceService;
+import br.com.menthoros.backend.services.helper.PlannerShadowService;
+import br.com.menthoros.backend.domain.compliance.PlannerViolation;
 import br.com.menthoros.backend.services.helper.ZonaTreinoService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -73,6 +75,7 @@ public class IaServiceImpl implements IaService {
     private final PlanoResilienceService planoResilienceService;
     private final MeterRegistry meterRegistry;
     private final LlmUsageLogger llmUsageLogger;
+    private final PlannerShadowService plannerShadowService;
 
     public IaServiceImpl(ModelRouter modelRouter, PlanoTreinoPromptBuilder promptBuilder,
                          AtletaRepository atletaRepository, RegraGeracaoTreino regraGeracaoTreino,
@@ -84,7 +87,8 @@ public class IaServiceImpl implements IaService {
                          PlanoEstruturaReparador estruturaReparador,
                          PlanoResilienceService planoResilienceService,
                          MeterRegistry meterRegistry,
-                         LlmUsageLogger llmUsageLogger) {
+                         LlmUsageLogger llmUsageLogger,
+                         PlannerShadowService plannerShadowService) {
         this.modelRouter = modelRouter;
         this.promptBuilder = promptBuilder;
         this.atletaRepository = atletaRepository;
@@ -98,6 +102,7 @@ public class IaServiceImpl implements IaService {
         this.planoResilienceService = planoResilienceService;
         this.meterRegistry = meterRegistry;
         this.llmUsageLogger = llmUsageLogger;
+        this.plannerShadowService = plannerShadowService;
     }
 
     private OpenAiChatOptions defaultJsonSchemaOptions() {
@@ -342,7 +347,8 @@ public class IaServiceImpl implements IaService {
                         llmUsageLogger.registrar(resposta.getResponse()); // best-effort, nunca lança
                         return resposta.getEntity();
                     },
-                    p -> validarENormalizarPlanoGerado(p, atleta.getId()),
+                    p -> aplicarComplianceEstagio1(
+                            validarENormalizarPlanoGerado(p, atleta.getId()), atleta, skeleton, inicioSemana),
                     prompt);
         } catch (DomainRuleViolationException e) {
             throw e; // falha estrutural final → mensagem ao treinador (não re-empacotar como 503)
@@ -361,6 +367,34 @@ public class IaServiceImpl implements IaService {
         long totalTime = System.currentTimeMillis() - startTime;
         log.info("Plano gerado com sucesso via structured output para atleta: {} - {} s", atleta.getId(), totalTime / 1000.0);
         return plano;
+    }
+
+    /**
+     * Estagio 1 do enforcement (planner-engine-enforcement secao 4): compliance PRE-redistribuicao.
+     * Roda somente quando ha {@code skeleton} (flag {@code planner-engine.enabled=true}); com o flag
+     * off recebe {@code skeleton == null} e é um no-op — prompt/geracao legados, sem checagem.
+     *
+     * <p>Violacao vira {@link LLMException}: dentro de {@code gerarComResiliencia} isso aciona o retry
+     * com os motivos no feedback e, esgotado o orcamento, cai em {@code DomainRuleViolationException}
+     * (422) — nenhuma nova geracao alem do orcamento (design Decisao 3b). Emite
+     * {@code planner.compliance.failure.count{stage=PRE}} a cada violacao detectada.
+     */
+    private PlanoSemanalLlmDto aplicarComplianceEstagio1(PlanoSemanalLlmDto validado, Atleta atleta,
+                                                         br.com.menthoros.backend.domain.planner.WeekPlanSkeleton skeleton,
+                                                         LocalDate inicioSemana) {
+        if (skeleton == null) {
+            return validado;
+        }
+        List<PlannerViolation> violacoes = plannerShadowService.checkPreRedistribution(
+                validado, skeleton, atleta, inicioSemana);
+        if (!violacoes.isEmpty()) {
+            meterRegistry.counter("planner.compliance.failure.count", "stage", "PRE").increment();
+            String motivos = violacoes.stream()
+                    .map(v -> v.key() + ": " + v.mensagem())
+                    .collect(java.util.stream.Collectors.joining("; "));
+            throw new LLMException("Plano diverge da estrutura prescrita pelo planner: " + motivos);
+        }
+        return validado;
     }
 
     /**
