@@ -70,6 +70,26 @@ public class RedistribuicaoTreinoHelper {
             ModoGeracaoPlano modoGeracao,
             DiaSemana diaPreferidoLongo
     ) {
+        return redistribuirTreinos(treinosLlm, diasDisponiveisAtleta, hoje, semanaInicio, semanaFim,
+                modoGeracao, diaPreferidoLongo, java.util.Map.of());
+    }
+
+    /**
+     * Overload com dias-alvo por tipo (planner-engine-enforcement §5.3): quando o planner esta ligado,
+     * o caller passa o dia prescrito de cada {@code SessionSlot} do skeleton; a redistribuicao tenta
+     * respeitar esse dia primeiro (se valido, livre e sem conflito de adjacencia) e, so entao, cai no
+     * algoritmo greedy de fallback existente — que fica inalterado. Mapa vazio = comportamento legado.
+     */
+    public List<TreinoPlanejadoLlmDto> redistribuirTreinos(
+            List<TreinoPlanejadoLlmDto> treinosLlm,
+            List<DiaSemana> diasDisponiveisAtleta,
+            LocalDate hoje,
+            LocalDate semanaInicio,
+            LocalDate semanaFim,
+            ModoGeracaoPlano modoGeracao,
+            DiaSemana diaPreferidoLongo,
+            java.util.Map<TipoTreino, DiaSemana> diasAlvoPorTipo
+    ) {
 
         log.info("Iniciando redistribuição - {} treinos da LLM, modo: {}",
                 treinosLlm.size(), modoGeracao);
@@ -105,7 +125,8 @@ public class RedistribuicaoTreinoHelper {
                 treinosFiltrados,
                 diasValidos,
                 semanaInicio,
-                diaPreferidoLongo
+                diaPreferidoLongo,
+                diasAlvoPorTipo
         );
 
         log.info("Redistribuição concluída: {} treinos redistribuídos em {} dias",
@@ -172,7 +193,8 @@ public class RedistribuicaoTreinoHelper {
             List<TreinoPlanejadoLlmDto> treinos,
             List<DiaSemana> diasValidos,
             LocalDate semanaInicio,
-            DiaSemana diaPreferidoLongo) {
+            DiaSemana diaPreferidoLongo,
+            java.util.Map<TipoTreino, DiaSemana> diasAlvoPorTipo) {
 
         List<TreinoPlanejadoLlmDto> treinosOrdenados = ordenarPorPrioridade(treinos);
         List<DiaSemana> diasOrdenados = ordenarDiasSemana(diasValidos);
@@ -205,7 +227,17 @@ public class RedistribuicaoTreinoHelper {
             }
 
             DiaSemana diaEscolhido = null;
+
+            // §5.3: tenta primeiro o dia prescrito pelo SessionSlot do skeleton (quando o planner
+            // guia a redistribuicao); so aceita se valido, livre e sem conflito de adjacencia.
+            DiaSemana diaAlvo = diasAlvoPorTipo.get(tipo);
+            if (diaAlvo != null && diasOrdenados.contains(diaAlvo) && !atribuicoes.containsKey(diaAlvo)
+                    && !(isIntensivo && temIntensivoConsecutivo(diaAlvo, atribuicoes))) {
+                diaEscolhido = diaAlvo;
+            }
+
             for (DiaSemana dia : diasOrdenados) {
+                if (diaEscolhido != null) break; // ja resolvido pelo dia-alvo do slot
                 if (atribuicoes.containsKey(dia)) continue; // dia já ocupado
 
                 if (isIntensivo && temIntensivoConsecutivo(dia, atribuicoes)) continue; // conflito de adjacência

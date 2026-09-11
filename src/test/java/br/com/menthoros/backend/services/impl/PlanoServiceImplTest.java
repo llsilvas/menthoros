@@ -338,7 +338,7 @@ class PlanoServiceImplTest {
                     planoService.gerarPlanoTreino(atletaId, modoGeracao));
 
             verify(iaService).geraPlanoSemanalAvancado(eq(atleta), eq(metaDados), any(), eq(modoGeracao), any(), any(), any(), any());
-            verify(redistribuicaoHelper, never()).redistribuirTreinos(any(), any(), any(), any(), any(), any());
+            verify(redistribuicaoHelper, never()).redistribuirTreinos(any(), any(), any(), any(), any(), any(), any(), any());
         }
     }
 
@@ -468,7 +468,7 @@ class PlanoServiceImplTest {
                 any(), any(), any())).thenReturn(Optional.empty());
 
         when(iaService.geraPlanoSemanalAvancado(eq(atleta), eq(metaDados), any(), eq(modoGeracao), any(), any(), any(), any())).thenReturn(planoDto);
-        when(redistribuicaoHelper.redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), any()))
+        when(redistribuicaoHelper.redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), any(), any()))
                 .thenReturn(Collections.emptyList());
 
         try (MockedStatic<Hibernate> hibernateMock = mockStatic(Hibernate.class)) {
@@ -481,7 +481,7 @@ class PlanoServiceImplTest {
             assertTrue(exception.getMessage().contains("Não foi possível gerar treinos"));
 
             verify(iaService).geraPlanoSemanalAvancado(eq(atleta), eq(metaDados), any(), eq(modoGeracao), any(), any(), any(), any());
-            verify(redistribuicaoHelper).redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), any());
+            verify(redistribuicaoHelper).redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), any(), any());
         }
     }
 
@@ -532,7 +532,7 @@ class PlanoServiceImplTest {
             assertEquals("Erro na IA", exception.getMessage());
 
             verify(iaService).geraPlanoSemanalAvancado(eq(atleta), eq(metaDados), any(), eq(modoGeracao), any(), any(), any(), any());
-            verify(redistribuicaoHelper, never()).redistribuirTreinos(any(), any(), any(), any(), any(), any());
+            verify(redistribuicaoHelper, never()).redistribuirTreinos(any(), any(), any(), any(), any(), any(), any(), any());
         }
     }
 
@@ -560,7 +560,7 @@ class PlanoServiceImplTest {
                 any(), any(), any())).thenReturn(Optional.empty());
 
         when(iaService.geraPlanoSemanalAvancado(eq(atleta), eq(metaDados), any(), eq(modoGeracao), any(), any(), any(), any())).thenReturn(planoDto);
-        when(redistribuicaoHelper.redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), any()))
+        when(redistribuicaoHelper.redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), any(), any()))
                 .thenReturn(treinosRedistribuidos);
         when(planoMetadadosRepository.findByIdAndTenantId(any(), any())).thenReturn(Optional.of(metaDados));
 
@@ -579,7 +579,7 @@ class PlanoServiceImplTest {
             assertNotNull(resultado);
             assertEquals(planoSalvo, resultado);
 
-            verify(redistribuicaoHelper).redistribuirTreinos(any(), any(), any(), any(), any(), eq(ModoGeracaoPlano.SEMANA_ATUAL), any());
+            verify(redistribuicaoHelper).redistribuirTreinos(any(), any(), any(), any(), any(), eq(ModoGeracaoPlano.SEMANA_ATUAL), any(), any());
         }
     }
 
@@ -621,7 +621,7 @@ class PlanoServiceImplTest {
         when(treinoMapper.toOutputDto(longo1)).thenReturn(treinoRealizadoOutput(longo1));
         when(treinoMapper.toOutputDto(longo2)).thenReturn(treinoRealizadoOutput(longo2));
         when(iaService.geraPlanoSemanalAvancado(eq(atleta), eq(metaDados), any(), eq(modoGeracao), any(), any(), any(), any())).thenReturn(planoDto);
-        when(redistribuicaoHelper.redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), eq(DiaSemana.DOMINGO)))
+        when(redistribuicaoHelper.redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), eq(DiaSemana.DOMINGO), any()))
                 .thenReturn(treinosRedistribuidos);
         when(planoMetadadosRepository.findByIdAndTenantId(any(), any())).thenReturn(Optional.of(metaDados));
 
@@ -636,7 +636,7 @@ class PlanoServiceImplTest {
             PlanoSemanal resultado = planoService.gerarPlanoTreino(atletaId, modoGeracao);
 
             assertNotNull(resultado);
-            verify(redistribuicaoHelper).redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), eq(DiaSemana.DOMINGO));
+            verify(redistribuicaoHelper).redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), eq(DiaSemana.DOMINGO), any());
         }
     }
 
@@ -680,7 +680,7 @@ class PlanoServiceImplTest {
 
         when(treinoMapper.toOutputDto(semStatus)).thenReturn(treinoRealizadoOutput(semStatus));
         when(iaService.geraPlanoSemanalAvancado(eq(atleta), eq(metaDados), any(), eq(modoGeracao), any(), any(), any(), any())).thenReturn(planoDto);
-        when(redistribuicaoHelper.redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), any()))
+        when(redistribuicaoHelper.redistribuirTreinos(any(), any(), any(), any(), any(), eq(modoGeracao), any(), any()))
                 .thenReturn(treinosRedistribuidos);
         when(planoMetadadosRepository.findByIdAndTenantId(any(), any())).thenReturn(Optional.of(metaDados));
 
@@ -730,7 +730,7 @@ class PlanoServiceImplTest {
                     planoService.gerarPlanoTreino(atletaId, modoGeracao));
 
             verify(iaService).geraPlanoSemanalAvancado(eq(atleta), eq(metaDados), any(), eq(modoGeracao), any(), any(), any(), any());
-            verify(redistribuicaoHelper, never()).redistribuirTreinos(any(), any(), any(), any(), any(), any());
+            verify(redistribuicaoHelper, never()).redistribuirTreinos(any(), any(), any(), any(), any(), any(), any(), any());
         }
     }
 
@@ -756,7 +756,7 @@ class PlanoServiceImplTest {
         // Verifica que a validação falhou antes de chamar serviços de IA ou redistribuição
         verify(atletaRepository).findByIdAndTenantId(atletaId, tenantId);
         verify(iaService, never()).geraPlanoSemanalAvancado(any(), any(), any(), eq(modoGeracao), any(), any(), any(), any());
-        verify(redistribuicaoHelper, never()).redistribuirTreinos(any(), any(), any(), any(), any(), any());
+        verify(redistribuicaoHelper, never()).redistribuirTreinos(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

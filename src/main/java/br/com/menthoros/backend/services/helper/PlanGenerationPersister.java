@@ -4,6 +4,7 @@ import br.com.menthoros.backend.domain.planner.InjuryRiskLevel;
 import br.com.menthoros.backend.domain.planner.OnboardingContext;
 import br.com.menthoros.backend.domain.planner.ReviewMode;
 import br.com.menthoros.backend.domain.planner.WeekPlanSkeleton;
+import br.com.menthoros.backend.domain.planner.SessionSlot;
 import br.com.menthoros.backend.dto.DecisaoProgressao;
 import br.com.menthoros.backend.dto.input.DadosPlanoDto;
 import br.com.menthoros.backend.dto.llm.PlanoSemanalLlmDto;
@@ -141,9 +142,18 @@ public class PlanGenerationPersister {
         log.info("Período calculado: {} a {} (Modo: {}, {} treinos no plano LLM)",
                 periodo.inicio(), periodo.fim(), modoGeracao, planoDto.treinosPlanejados().size());
 
+        UUID tenantId = TenantContext.getRequiredTenantId();
+        Optional<OnboardingContext> onboardingContext = resolverOnboardingContext(atleta.getId(), tenantId);
+
+        // §5.3: com o planner ligado, os dias prescritos pelos SessionSlot guiam a redistribuicao.
+        // O skeleton e recomputado (planWeek e puro/deterministico) para nao acoplar a redistribuicao
+        // ao shadow; enabled=false => mapa vazio => comportamento legado byte-a-byte (CA9).
+        java.util.Map<TipoTreino, DiaSemana> diasAlvoPorTipo = diasAlvoDaRedistribuicao(
+                dadosPlano, decisaoProgressao, periodo.inicio(), onboardingContext);
+
         DiaSemana diaPrioritarioLongo = inferirDiaPrioritarioLongo(dadosPlano);
         List<TreinoPlanejadoLlmDto> treinos = obterTreinosParaPlano(
-                planoDto.treinosPlanejados(), atleta, periodo, modoGeracao, diaPrioritarioLongo);
+                planoDto.treinosPlanejados(), atleta, periodo, modoGeracao, diaPrioritarioLongo, diasAlvoPorTipo);
 
         // Volume recalculado da lista final (pós-garantia da prova), não o que o LLM declarou em
         // planoDto.volumePlanejadoKm() — sem isso PlanoMetaDados e o alerta de progressão ficam
@@ -156,8 +166,6 @@ public class PlanGenerationPersister {
         // Shadow do PlannerEngine (deterministic-planner-engine, Decisao 10): roda apos a geracao
         // legada, nunca altera plano/prompt/persistencia (CA12); falha isolada internamente (CA11).
         // batch=false: este call site nao distingue interativo de lote — tag de metrica aproximada.
-        UUID tenantId = TenantContext.getRequiredTenantId();
-        Optional<OnboardingContext> onboardingContext = resolverOnboardingContext(atleta.getId(), tenantId);
         Optional<WeekPlanSkeleton> weekPlanSkeleton = plannerShadowService.aplicarShadow(
                 plano, planoDto, dadosPlano, decisaoProgressao, periodo.inicio(), false, onboardingContext);
 
@@ -314,7 +322,8 @@ public class PlanGenerationPersister {
                                                               Atleta atleta,
                                                               PeriodoPlano periodo,
                                                               ModoGeracaoPlano modoGeracao,
-                                                              DiaSemana diaPrioritarioLongo) {
+                                                              DiaSemana diaPrioritarioLongo,
+                                                              java.util.Map<TipoTreino, DiaSemana> diasAlvoPorTipo) {
         List<TreinoPlanejadoLlmDto> treinos = ModoGeracaoPlano.SEMANA_ATUAL.equals(modoGeracao)
                 ? redistribuicaoHelper.redistribuirTreinos(
                         treinosLlm,
@@ -323,7 +332,8 @@ public class PlanGenerationPersister {
                         periodo.inicio(),
                         periodo.fim(),
                         modoGeracao,
-                        diaPrioritarioLongo)
+                        diaPrioritarioLongo,
+                        diasAlvoPorTipo)
                 : treinosLlm;
 
         // Garantia determinística (design.md D2): roda depois da redistribuição — senão o
@@ -333,6 +343,46 @@ public class PlanGenerationPersister {
 
         validarTreinosGerados(treinos);
         return treinos;
+    }
+
+    /**
+     * §5.3: mapa tipo->dia-alvo para guiar a redistribuicao, derivado dos {@code SessionSlot} do
+     * skeleton. Vazio quando o planner esta desligado (comportamento legado) ou quando o calculo
+     * falha (fail-open local — o estagio 2 e o gate real). O skeleton e recomputado aqui porque a
+     * redistribuicao roda ANTES do shadow; {@code planWeek} e puro/deterministico, entao coincide.
+     */
+    private Map<TipoTreino, DiaSemana> diasAlvoDaRedistribuicao(DadosPlanoDto dadosPlano,
+                                                               DecisaoProgressao decisaoProgressao,
+                                                               LocalDate semanaInicio,
+                                                               Optional<OnboardingContext> onboardingContext) {
+        if (!plannerEnabled) {
+            return Map.of();
+        }
+        try {
+            WeekPlanSkeleton skeleton = plannerShadowService.computarSkeleton(
+                    dadosPlano, decisaoProgressao, semanaInicio, onboardingContext);
+            return diasAlvoDosSlots(skeleton);
+        } catch (Exception e) {
+            log.warn("Falha ao computar skeleton para guiar a redistribuicao (seguindo sem guia): {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    private Map<TipoTreino, DiaSemana> diasAlvoDosSlots(WeekPlanSkeleton skeleton) {
+        Map<TipoTreino, DiaSemana> mapa = new java.util.EnumMap<>(TipoTreino.class);
+        for (SessionSlot slot : skeleton.sessions()) {
+            if (slot.day() == null) {
+                continue;
+            }
+            TipoTreino tipo;
+            try {
+                tipo = TipoTreino.valueOf(slot.sessionType());
+            } catch (IllegalArgumentException | NullPointerException e) {
+                continue; // tipo do slot fora do enum de TipoTreino — ignora, greedy resolve
+            }
+            mapa.putIfAbsent(tipo, Utils.converterDayOfWeekParaDiaSemana(slot.day()));
+        }
+        return mapa;
     }
 
     private double calcularVolumeTotalPlanejadoDto(List<TreinoPlanejadoLlmDto> treinos) {
