@@ -31,6 +31,10 @@ public class PlannerEngine {
     private final InjuryRiskEvaluator injuryRiskEvaluator;
     private final InjuryPolicyResolver injuryPolicyResolver;
     private final ConstraintValidator constraintValidator;
+    // Puros e sem dependencias — instanciados aqui para nao mudar a assinatura do construtor
+    // (injetado pelo PlannerShadowService e construido em varios testes).
+    private final SessionCompositionResolver compositionResolver = new SessionCompositionResolver();
+    private final SessionDayAllocator dayAllocator = new SessionDayAllocator();
 
     public PlannerEngine(PeriodizationPlanner periodizationPlanner,
                           LoadTargetResolver loadTargetResolver,
@@ -62,10 +66,12 @@ public class PlannerEngine {
         loadTarget = aplicarTaperSeAplicavel(loadTarget, fase, periodizacao, snapshot.referenceDate());
 
         AthleteConstraints constraints = resolverConstraints(snapshot);
-        // SessionSlot prescritivo (dia/TSS por sessao/zonas) e enforcement — fora de escopo desta
-        // change (design.md, "Fora de escopo"). Sem sessoes candidatas, a validacao e trivialmente
-        // valida; passa a ser exercida de fato quando a geracao de sessoes existir.
-        ConstraintValidationResult constraintResult = constraintValidator.validate(constraints, List.of());
+
+        // Composicao prescritiva (planner-engine-enforcement, Decisao 4/4b + ADR-0011): compoe os
+        // SessionSlot por fase e aloca os dias. Roda sempre (o skeleton alimenta shadow e, com
+        // enabled=true, o prompt/compliance).
+        List<SessionSlot> sessoes = comporSessoes(snapshot, fase, loadTarget, constraints, periodizacao);
+        ConstraintValidationResult constraintResult = constraintValidator.validate(constraints, sessoes);
 
         boolean requiresCoachReview = injuryPolicy.requiresCoachReview() || risco.requiresCoachReview();
         // Hierarquia P0: motivo de lesao (passo 1) tem precedencia sobre motivo fisiologico (passo 2).
@@ -78,7 +84,7 @@ public class PlannerEngine {
         return new WeekPlanSkeleton(
                 fase,
                 loadTarget,
-                List.of(),
+                sessoes,
                 risco,
                 constraintResult,
                 requiresCoachReview,
@@ -86,6 +92,46 @@ public class PlannerEngine {
                 snapshot.referenceDate(),
                 plannerScope,
                 periodizacao.provaDeterminante());
+    }
+
+    /** Compoe os SessionSlot por fase (ADR-0011) e aloca os dias. Puro/deterministico. */
+    private List<SessionSlot> comporSessoes(PlannerInputSnapshot snapshot,
+                                            TrainingPhase fase,
+                                            WeeklyLoadTarget loadTarget,
+                                            AthleteConstraints constraints,
+                                            PeriodizationResult periodizacao) {
+        List<DayOfWeek> diasDisponiveis = constraints.diasDisponiveis() != null ? constraints.diasDisponiveis() : List.of();
+        int longoes21d = snapshot.progressaoHistorico() != null ? snapshot.progressaoHistorico().longoesRealizados21d() : 0;
+
+        // PROVA na semana (RACE_WEEK): estima horas da prova pelo pace default por distancia (Decisao 4b);
+        // o dia da prova e o real dela (ancora fixa), fora dos dias disponiveis se preciso.
+        Double provaHoras = null;
+        DayOfWeek provaDay = null;
+        if (fase == TrainingPhase.RACE_WEEK && periodizacao.provaDeterminante().isPresent()) {
+            ProvaSnapshot prova = periodizacao.provaDeterminante().get();
+            provaDay = prova.dataProva() != null ? prova.dataProva().getDayOfWeek() : null;
+            if (prova.distanciaKm() != null && prova.distanciaKm() > 0) {
+                provaHoras = prova.distanciaKm() * paceDefaultMinPorKm(prova.distanciaKm()) / 60.0;
+            }
+        }
+
+        var req = new SessionCompositionResolver.CompositionRequest(
+                fase, loadTarget.targetTss(), diasDisponiveis.size(),
+                constraints.maxSessoesPorSemana(), constraints.duracaoMaximaMinutos(),
+                longoes21d, provaHoras);
+        List<SessionSlot> composed = compositionResolver.compose(req);
+        // preferredLongDay nao esta no snapshot do planner (fica na entidade Atleta) — fallback = ultimo
+        // dia disponivel. Trazer o campo ao snapshot e follow-up.
+        return dayAllocator.allocate(composed, diasDisponiveis, null, provaDay);
+    }
+
+    /** Pace default (min/km) por faixa de distancia, quando o pace do atleta nao esta no snapshot (Decisao 4b). */
+    private double paceDefaultMinPorKm(double distanciaKm) {
+        if (distanciaKm <= 5) return 5.0;
+        if (distanciaKm <= 10) return 5.25;
+        if (distanciaKm <= 21) return 5.5;
+        if (distanciaKm <= 42) return 6.0;
+        return 6.5;
     }
 
     private WeeklyLoadTarget aplicarTaperSeAplicavel(WeeklyLoadTarget loadTarget,

@@ -96,7 +96,7 @@ class PlanoGeracaoConcorrenteIT extends AbstractIntegrationTest {
         CountDownLatch ambasNoLlm = new CountDownLatch(2);
         CountDownLatch libera = new CountDownLatch(1);
 
-        when(iaService.geraPlanoSemanalAvancado(any(), any(), any(), any(), any(), any(), any()))
+        when(iaService.geraPlanoSemanalAvancado(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> {
                     ambasNoLlm.countDown();
                     if (!libera.await(15, TimeUnit.SECONDS)) {

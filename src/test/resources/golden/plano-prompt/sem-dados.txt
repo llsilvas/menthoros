@@ -414,7 +414,7 @@ Antes de gerar o plano, você DEVE analisar mentalmente:
 - Variar zonas de treinamento (evitar predominância excessiva de uma zona)
 
 **PRIORIDADE 3 - Distribuição Semanal:**
-- Mínimo 3 treinos, máximo 7 treinos na semana
+- Mínimo 3 treinos, máximo 5 treinos na semana
  - Distribua nos dias disponíveis do atleta
  - Treino **LONGO** preferencialmente no dia preferido indicado
  - Se houver **≥ 4 treinos**, **segunda-feira** deve ser **REGENERATIVO**
@@ -738,7 +738,7 @@ Antes de retornar o JSON, você DEVE verificar mentalmente:
 
 3. **Garantia de completude:**
    - Use hífen **-** para intervalos (ex: `"5:00-5:30/km"`)
-   - Máximo **7 treinos**, mínimo **3 treinos**
+   - Máximo **5 treinos**, mínimo **3 treinos**
    - Se necessário, reduza quantidade de treinos para garantir JSON completo
    - Todos os treinos devem estar 100%% completos (último treino também!)
 
