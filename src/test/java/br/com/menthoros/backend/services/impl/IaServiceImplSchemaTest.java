@@ -101,6 +101,32 @@ class IaServiceImplSchemaTest {
                 "diaSemana", "tipoTreino", "duracaoMin", "distanciaKm", "ritmoAlvo", "etapas");
     }
 
+    @Test
+    @DisplayName("CA10 — prompt e schema declaram o mesmo teto de treinos (maxItems == 'máximo N treinos')")
+    void promptESchemaAlinhamTetoDeTreinos() throws Exception {
+        IaServiceImpl service = new IaServiceImpl(modelRouter, promptBuilder, atletaRepository,
+                regraGeracaoTreino, treinoHistoricoProvider, paceHistoricoFormatter, paceValidator,
+                zonaTreinoService, planQualityChecker, estruturaReparador, planoResilienceService,
+                meterRegistry, llmUsageLogger, plannerShadowService);
+
+        Method build = IaServiceImpl.class.getDeclaredMethod("buildSchemaTightInlineOrDefs");
+        build.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> schema = (Map<String, Object>) build.invoke(service);
+
+        int schemaMax = (int) treinos(schema).get("maxItems");
+
+        String template = new String(new org.springframework.core.io.ClassPathResource(
+                "prompts/plano-treino-otimizado-claude.txt").getInputStream().readAllBytes(),
+                java.nio.charset.StandardCharsets.UTF_8);
+
+        // O template deve declarar exatamente o teto do schema — divergir aqui quebra o teste (CA10).
+        assertThat(template)
+                .as("prompt deve declarar 'máximo %d treinos' alinhado ao maxItems do schema", schemaMax)
+                .contains("máximo " + schemaMax + " treinos");
+        assertThat(schemaMax).isEqualTo(5);
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Object> treinos(Map<String, Object> schema) {
         Map<String, Object> planoProps = (Map<String, Object>) schema.get("properties");
