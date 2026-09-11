@@ -29,10 +29,11 @@ public interface PlanoSemanalMapper {
     // planner-engine-enforcement §7.1: leitura apenas — status/review pelas colunas (verdict do
     // enforcement) e os motivos parseados do planner_metadata_json (detalhe estruturado).
     ObjectMapper PLANNER_METADATA_MAPPER = new ObjectMapper();
+    org.slf4j.Logger PLANNER_LOG = org.slf4j.LoggerFactory.getLogger(PlanoSemanalMapper.class);
 
     @Mapping(target = "atletaNome", expression = "java(resolveAtletaNome(entity))")
     @Mapping(target = "plannerComplianceStatus", expression = "java(resolvePlannerComplianceStatus(entity))")
-    @Mapping(target = "plannerReviewMotivos", expression = "java(resolvePlannerMotivos(entity))")
+    @Mapping(target = "plannerReviewReasons", expression = "java(resolvePlannerReviewReasons(entity))")
     PlanoSemanalOutputDto toOutputDto(PlanoSemanal entity);
 
     /** String da coluna -> enum, tolerante a plano legado (null/blank) e a valor desconhecido. */
@@ -44,6 +45,8 @@ public interface PlanoSemanalMapper {
         try {
             return PlannerComplianceStatus.valueOf(status);
         } catch (IllegalArgumentException e) {
+            PLANNER_LOG.warn("planner_compliance_status desconhecido no plano {}: '{}' — expondo null",
+                    entity.getId(), status);
             return null;
         }
     }
@@ -53,7 +56,7 @@ public interface PlanoSemanalMapper {
      * planner_metadata_json. Plano legado sem metadata, JSON ilegivel ou sem violacoes -> null
      * (sem NPE, sem badge).
      */
-    default List<String> resolvePlannerMotivos(PlanoSemanal entity) {
+    default List<String> resolvePlannerReviewReasons(PlanoSemanal entity) {
         String json = entity.getPlannerMetadataJson();
         if (json == null || json.isBlank()) {
             return null;
@@ -65,6 +68,8 @@ public interface PlanoSemanalMapper {
             }
             return metadata.violations().stream().map(PlannerViolation::mensagem).toList();
         } catch (Exception e) {
+            PLANNER_LOG.warn("planner_metadata_json ilegivel no plano {}: {} — expondo motivos null",
+                    entity.getId(), e.getMessage());
             return null;
         }
     }

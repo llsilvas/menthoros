@@ -180,7 +180,10 @@ public class BatchPlanProcessor {
             falhasConsecutivas.incrementAndGet();
             return registrarErro(jobId, atletaId, MOTIVO_ERRO_GERACAO);
         } catch (DomainRuleViolationException e) {
-            // Outras violações de regra (ex.: "sem dias disponíveis") — erro genérico.
+            // Outras violações de regra (ex.: "sem dias disponíveis", compliance do planner esgotado) —
+            // erro genérico ao coach; o detalhe fica no log estruturado (nunca no relatório do job).
+            log.warn("[batch-plan] regra de domínio ao gerar plano do atleta {} (job {}): {}",
+                    atletaId, jobId, e.getMessage());
             falhasConsecutivas.incrementAndGet();
             return registrarErro(jobId, atletaId, MOTIVO_ERRO_GERACAO);
         } catch (InterruptedException e) {

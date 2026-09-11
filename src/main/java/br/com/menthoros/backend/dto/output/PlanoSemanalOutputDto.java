@@ -84,5 +84,5 @@ public record PlanoSemanalOutputDto(
 
         @Schema(description = "Resumo legivel dos motivos de divergencia do planner (uma frase por " +
                 "violacao), para o badge de revisao; null/vazio quando nao ha violacao ou em plano legado")
-        List<String> plannerReviewMotivos
+        List<String> plannerReviewReasons
 ) {}

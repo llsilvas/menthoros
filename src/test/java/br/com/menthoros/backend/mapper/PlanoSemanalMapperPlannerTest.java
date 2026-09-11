@@ -60,7 +60,7 @@ class PlanoSemanalMapperPlannerTest {
 
             assertThat(dto.plannerComplianceStatus()).isEqualTo(PlannerComplianceStatus.FAILED);
             assertThat(dto.plannerRequiresCoachReview()).isTrue();
-            assertThat(dto.plannerReviewMotivos())
+            assertThat(dto.plannerReviewReasons())
                     .containsExactly("treino em dia nao disponivel", "carga alta na semana de taper");
         }
     }
@@ -81,7 +81,7 @@ class PlanoSemanalMapperPlannerTest {
 
             assertThat(dto.plannerComplianceStatus()).isEqualTo(PlannerComplianceStatus.PASSED);
             assertThat(dto.plannerRequiresCoachReview()).isFalse();
-            assertThat(dto.plannerReviewMotivos()).isNull();
+            assertThat(dto.plannerReviewReasons()).isNull();
         }
     }
 
@@ -98,7 +98,7 @@ class PlanoSemanalMapperPlannerTest {
 
             assertThat(dto.plannerComplianceStatus()).isNull();
             assertThat(dto.plannerRequiresCoachReview()).isNull();
-            assertThat(dto.plannerReviewMotivos()).isNull();
+            assertThat(dto.plannerReviewReasons()).isNull();
         }
 
         @Test
@@ -111,7 +111,7 @@ class PlanoSemanalMapperPlannerTest {
             PlanoSemanalOutputDto dto = mapper.toOutputDto(plano);
 
             assertThat(dto.plannerComplianceStatus()).isNull(); // valor desconhecido -> null
-            assertThat(dto.plannerReviewMotivos()).isNull();
+            assertThat(dto.plannerReviewReasons()).isNull();
         }
     }
 }
