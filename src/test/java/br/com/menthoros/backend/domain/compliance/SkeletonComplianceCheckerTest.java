@@ -34,9 +34,11 @@ class SkeletonComplianceCheckerTest {
             WeekPlanSkeleton skeleton = skeleton(TrainingPhase.BUILD, 300.0, 270.0, 330.0);
             GeneratedPlanSnapshot plano = plano(sessao(0, "REGENERATIVO", 500, "Z1")); // muito acima da faixa
 
-            List<PlannerViolation> violacoes = checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty()));
-
-            assertThat(violacoes).anyMatch(v -> v.key() == PlannerViolationKey.TSS_FORA_DA_FAIXA);
+            // TSS_FORA_DA_FAIXA e soft (estagio 2) desde a calibracao 2026-09-11: nao entra no estagio 1.
+            assertThat(checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty())))
+                    .noneMatch(v -> v.key() == PlannerViolationKey.TSS_FORA_DA_FAIXA);
+            assertThat(checker.checkPostRedistribution(plano, skeleton, contexto(Optional.empty())))
+                    .anyMatch(v -> v.key() == PlannerViolationKey.TSS_FORA_DA_FAIXA);
         }
 
         @Test
@@ -48,7 +50,7 @@ class SkeletonComplianceCheckerTest {
                     sessao(3, "INTERVALADO", 90, "Z4"),
                     sessao(5, "LONGO", 110, "Z2"));
 
-            List<PlannerViolation> violacoes = checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty()));
+            List<PlannerViolation> violacoes = checker.checkPostRedistribution(plano, skeleton, contexto(Optional.empty()));
 
             assertThat(violacoes).noneMatch(v -> v.key() == PlannerViolationKey.TSS_FORA_DA_FAIXA);
         }
@@ -70,9 +72,11 @@ class SkeletonComplianceCheckerTest {
             WeekPlanSkeleton skeleton = skeleton(TrainingPhase.BUILD, 300.0, 270.0, 330.0);
             GeneratedPlanSnapshot plano = plano(sessao(5, "LONGO", 200, "Z2")); // > 40% de 300
 
-            List<PlannerViolation> violacoes = checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty()));
-
-            assertThat(violacoes).anyMatch(v -> v.key() == PlannerViolationKey.LONGO_ACIMA_TETO);
+            // LONGO_ACIMA_TETO e soft (estagio 2) desde a calibracao 2026-09-11: nao entra no estagio 1.
+            assertThat(checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty())))
+                    .noneMatch(v -> v.key() == PlannerViolationKey.LONGO_ACIMA_TETO);
+            assertThat(checker.checkPostRedistribution(plano, skeleton, contexto(Optional.empty())))
+                    .anyMatch(v -> v.key() == PlannerViolationKey.LONGO_ACIMA_TETO);
         }
 
         @Test

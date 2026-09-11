@@ -41,11 +41,11 @@ public class SkeletonComplianceChecker {
         List<PlannerViolation> violacoes = new ArrayList<>();
         checarFase(plano, skeleton, violacoes);
         checarSessionCount(plano, skeleton, violacoes);
-        checarTssNaFaixa(plano, skeleton, violacoes);
-        checarTetoDeLongo(plano, skeleton, violacoes);
-        // EXCESSO_INTENSIDADE NAO entra no estagio 1 (calibracao 2026-09-11): e uma divergencia de
-        // distribuicao (revisavel), nao um erro estrutural que o retro deva reprovar ate esgotar o
-        // orcamento e devolver 422. Fica no estagio 2 (checkPost) -> soft -> FAILED + requiresCoachReview.
+        // Carga/distribuicao (TSS_FORA_DA_FAIXA, LONGO_ACIMA_TETO, EXCESSO_INTENSIDADE) NAO entram no
+        // estagio 1 (calibracao 2026-09-11): sao divergencias revisaveis contra estimativas do skeleton
+        // (ex.: targetTss = ctl x 7, fraco p/ atleta sem base), nao erros estruturais que um retry
+        // corrige — e como estimativa vira trava dura, o estagio 1 devolvia 422 espurio. Vao para o
+        // estagio 2 (checkPost) -> soft -> FAILED + requiresCoachReview, sem bloquear a geracao.
         checarSessaoPesadaPertoDaProva(plano, context, violacoes);
         checarConstraintsDuras(plano, context, violacoes);
         return violacoes;
@@ -60,7 +60,11 @@ public class SkeletonComplianceChecker {
                                                             ComplianceContext context) {
         List<PlannerViolation> violacoes = new ArrayList<>();
         checarDiasPermitidos(treinosRedistribuidos, context, violacoes);
-        checarExcessoDeIntensidade(treinosRedistribuidos, skeleton, violacoes); // estagio 2 (soft), ver checkPre
+        // Carga/distribuicao — soft, estagio 2 (ver checkPre): divergencia contra estimativa do skeleton
+        // vira FAILED + requiresCoachReview, nunca 422.
+        checarTssNaFaixa(treinosRedistribuidos, skeleton, violacoes);
+        checarTetoDeLongo(treinosRedistribuidos, skeleton, violacoes);
+        checarExcessoDeIntensidade(treinosRedistribuidos, skeleton, violacoes);
         checarSessaoPesadaPertoDaProva(treinosRedistribuidos, context, violacoes);
         checarTaperPreservado(treinosRedistribuidos, skeleton, violacoes);
         return violacoes;

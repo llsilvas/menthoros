@@ -173,8 +173,9 @@ class PlannerShadowServiceTest {
 
             shadowHabilitado.aplicarShadow(planoBase(), planoGerado(), dadosPlano(atletaBase()), decisaoNeutra(), semanaInicio, false);
 
+            // TSS_FORA_DA_FAIXA e check do estagio 2 (soft) desde a calibracao 2026-09-11 -> tag stage=POST.
             assertThat(meterRegistry.find("planner.compliance.hypothetical_failure.count")
-                    .tag("reason", "TSS_FORA_DA_FAIXA").tag("stage", "PRE").counter()).isNotNull();
+                    .tag("reason", "TSS_FORA_DA_FAIXA").tag("stage", "POST").counter()).isNotNull();
         }
     }
 
