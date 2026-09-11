@@ -28,8 +28,9 @@ class SessionCompositionCalibrationTest {
 
     private final SessionCompositionResolver resolver = new SessionCompositionResolver();
 
-    /** Espelha SkeletonComplianceChecker.TETO_INTERVALADO_FRACAO — ajuste os dois juntos. */
-    private static final double CAP_FRACAO = 0.25;
+    /** Espelha SkeletonComplianceChecker: teto = max(targetTss × FRACAO, PISO). Ajuste junto com o checker. */
+    private static final double CAP_FRACAO = 0.40;
+    private static final double CAP_PISO = 60.0;
     /** TSS mínimo realista de um intervalado estruturado (aquec + tiros + desaq), para referência. */
     private static final double INTERVALADO_REALISTA_TSS = 60.0;
 
@@ -62,7 +63,7 @@ class SessionCompositionCalibrationTest {
                             new CompositionRequest(fase, target, dias, null, null, 3, null));
 
                     double soma = slots.stream().mapToDouble(s -> s.targetTss()).sum();
-                    double cap = target * CAP_FRACAO;
+                    double cap = Math.max(target * CAP_FRACAO, CAP_PISO);
 
                     String tipos = slots.stream()
                             .map(s -> String.format("%s%s%.0f",
