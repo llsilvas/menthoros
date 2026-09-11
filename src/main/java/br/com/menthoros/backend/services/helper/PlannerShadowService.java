@@ -168,7 +168,7 @@ public class PlannerShadowService {
                 ? PlannerComplianceStatus.COMPLIANT
                 : PlannerComplianceStatus.VIOLATIONS_DETECTED;
 
-        persistirAuditoria(plano, skeleton, status, todasViolacoes.size());
+        persistirAuditoria(plano, skeleton, status, todasViolacoes);
         registrarMetricas(skeleton, status, violacoesPre, violacoesPost, batch);
         registrarDivergenciaDeFase(skeleton, atleta, semanaInicio);
 
@@ -336,7 +336,7 @@ public class PlannerShadowService {
     // --- Auditoria e metricas ---
 
     private void persistirAuditoria(PlanoSemanal plano, WeekPlanSkeleton skeleton,
-                                     PlannerComplianceStatus status, int violationCount) throws Exception {
+                                     PlannerComplianceStatus status, List<PlannerViolation> violacoes) throws Exception {
         plano.setPlannerVersion(PlannerVersion.CURRENT);
         plano.setPlannerPhase(skeleton.phase().name());
         plano.setPlannerRequiresCoachReview(skeleton.requiresCoachReview());
@@ -345,7 +345,7 @@ public class PlannerShadowService {
 
         PlannerAuditMetadata metadata = new PlannerAuditMetadata(
                 skeleton.phase(), skeleton.requiresCoachReview(), skeleton.coachReviewReason(),
-                status, violationCount, PlannerVersion.CURRENT);
+                status, violacoes.size(), List.copyOf(violacoes), PlannerVersion.CURRENT);
         plano.setPlannerMetadataJson(objectMapper.writeValueAsString(metadata));
     }
 

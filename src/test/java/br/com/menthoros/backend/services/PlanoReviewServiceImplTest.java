@@ -573,6 +573,6 @@ class PlanoReviewServiceImplTest {
         return new PlanoSemanalOutputDto(
                 planoId.toString(), LocalDate.now(), LocalDate.now().plusDays(6),
                 40.0, 0.0, 40.0, null, null, PlanoStatus.PLANEJADO,
-                null, "Semana base", List.of(), reviewStatus, null, null, "Ana Silva", null, null);
+                null, "Semana base", List.of(), reviewStatus, null, null, "Ana Silva", null, null, null, null, null);
     }
 }

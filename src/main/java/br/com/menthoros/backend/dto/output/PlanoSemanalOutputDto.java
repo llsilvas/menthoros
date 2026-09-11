@@ -72,5 +72,17 @@ public record PlanoSemanalOutputDto(
 
         @Schema(description = "Motivo pelo qual um plano aprovado voltou a AGUARDANDO_REVISAO por causa de uma prova; " +
                 "null fora dessa reabertura (prova-no-plano-semanal)", example = "PROVA_INSERIDA")
-        MotivoReaberturaRevisao motivoReabertura
+        MotivoReaberturaRevisao motivoReabertura,
+
+        @Schema(description = "Status de compliance do plano frente ao skeleton do planner " +
+                "(planner-engine-enforcement); null em plano legado sem avaliacao", example = "FAILED")
+        br.com.menthoros.backend.domain.compliance.PlannerComplianceStatus plannerComplianceStatus,
+
+        @Schema(description = "Indica que o plano exige revisao do coach por divergencia do planner " +
+                "(FAILED ou requiresCoachReview); null em plano legado", example = "true")
+        Boolean plannerRequiresCoachReview,
+
+        @Schema(description = "Resumo legivel dos motivos de divergencia do planner (uma frase por " +
+                "violacao), para o badge de revisao; null/vazio quando nao ha violacao ou em plano legado")
+        List<String> plannerReviewMotivos
 ) {}
