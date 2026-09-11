@@ -23,10 +23,11 @@ import static org.mockito.Mockito.mock;
  * Normalização de treino INTERVALADO/TIRO ({@code normalizarTreinoIntervalado}).
  *
  * <p>Caso real que motivou esta change: geração de 2026-09-11 gerou "5x800m Z4" (5 tiros de
- * 0,8 km), mas a soma das etapas (9,47 km) excedia a {@code distanciaKm} declarada pelo LLM
- * (8,0 km). O normalizador encolhia os próprios tiros para bater com o total — quebrando a
- * distância prescrita. Tiros não podem encolher; só a "folga" (recuperação/aquec./desaq.) absorve
- * o excesso, e o total declarado é corrigido depois por {@code reconciliarDistanciaComEtapas}.</p>
+ * 0,8 km), mas a soma das etapas excedia a {@code distanciaKm} declarada pelo LLM. O normalizador
+ * encolhia os próprios tiros para bater com o total — quebrando a distância prescrita. Tiros não
+ * podem encolher; só a "folga" (recuperação/aquec./desaq.) absorve o excesso, e o total declarado
+ * é corrigido depois por {@code reconciliarDistanciaComEtapas}. Os fixtures abaixo usam valores
+ * menores que o caso real (log completo na proposal da change), para manter o cenário legível.</p>
  *
  * <p>Acessa {@code normalizarTreinoIntervalado} por reflexão, mesmo padrão de
  * {@link IaServiceImplFartlekExpansaoTest}.</p>
@@ -116,6 +117,38 @@ class IaServiceImplNormalizarIntervaladoTest {
                     .filteredOn(e -> "RECUPERACAO".equals(e.tipoEtapa()))
                     .extracting(EtapaTreinoLlmDto::distanciaKm)
                     .anyMatch(d -> d < 0.3);
+        }
+
+        @Test
+        @DisplayName("CA3: gap positivo continua distribuído entre os tiros (crescimento intocado pelo fix)")
+        void gapPositivoCresceTiros() throws Exception {
+            // Arrange — soma das etapas (6,9km) menor que o alvo (7,3km): gap=+0,4km, abaixo do
+            // limiar de 0,6km que dispara "adicionar tiro+recuperação inteiros", então cai direto
+            // na distribuição proporcional — o caminho que o fix deveria deixar intocado.
+            TreinoPlanejadoLlmDto treino = intervalado(7.3,
+                    etapa("AQUECIMENTO", 10, 1.5),
+                    tiro(0.8), rec(0.3),
+                    tiro(0.8), rec(0.3),
+                    tiro(0.8), rec(0.3),
+                    tiro(0.8),
+                    etapa("DESAQUECIMENTO", 10, 1.3)
+            );
+
+            // Act
+            TreinoPlanejadoLlmDto resultado = normalizar(treino, NivelExperiencia.INTERMEDIARIO);
+
+            // Assert — os 4 tiros cresceram de 0,8 para 0,9km (delta 0,4km / 4 tiros), absorvendo
+            // todo o gap positivo; nenhuma etapa RECUPERACAO foi tocada nesse caminho.
+            // offset(): distribuirDeltaPorTipo soma incrementos em double, e 0.8 + 0.1 não é
+            // representável exatamente em ponto flutuante (vira 0.8999999999999999).
+            assertThat(resultado.etapas())
+                    .filteredOn(e -> "INTERVALADO".equals(e.tipoEtapa()))
+                    .extracting(EtapaTreinoLlmDto::distanciaKm)
+                    .allSatisfy(d -> assertThat(d).isCloseTo(0.9, org.assertj.core.data.Offset.offset(0.001)));
+            assertThat(resultado.etapas())
+                    .filteredOn(e -> "RECUPERACAO".equals(e.tipoEtapa()))
+                    .extracting(EtapaTreinoLlmDto::distanciaKm)
+                    .containsOnly(0.3);
         }
 
         @Test
