@@ -531,6 +531,12 @@ public class IaServiceImpl implements IaService {
                 }
             }
 
+            // Distância zerada em treino contínuo (ex.: REGENERATIVO sintetizado pelo reparo estrutural /
+            // substituição por lesão): as etapas nascem só com duração, e corrigirDistanciasEtapasTemporais
+            // não deriva a etapa PRINCIPAL. Aqui derivamos de duração×pace e reconciliamos o total — sem
+            // sobrescrever distância válida já existente.
+            treino = garantirDistanciaContinuo(treino, atleta.getPaceLimiar());
+
             // Validar triângulo pace × distância × duração (após recálculo)
             validarTrianguloPaceDuracaoDistancia(treino);
 
@@ -1140,6 +1146,37 @@ public class IaServiceImpl implements IaService {
         return new EtapaTreinoLlmDto(
                 e.ordem(), e.tipoEtapa(), e.descricaoEtapa(),
                 e.duracaoMin(), distancia, e.fcAlvoEtapa(), e.repeticoes(), e.ritmoAlvo());
+    }
+
+    /** Tipos contínuos cuja etapa PRINCIPAL é tempo-baseada (distância = duração/pace). */
+    private static final java.util.Set<String> TIPOS_CONTINUOS =
+            java.util.Set.of("REGENERATIVO", "FACIL", "CONTINUO", "LONGO", "TEMPO_RUN");
+
+    /**
+     * Deriva a distância de um treino CONTÍNUO cujas etapas nasceram sem distância (ex.: REGENERATIVO
+     * sintetizado pelo reparo estrutural / substituição por lesão). Para cada etapa tempo-baseada sem
+     * distância, calcula {@code duração / paceZ2} — inclusive a PRINCIPAL, que
+     * {@code corrigirEtapaTemporal} deliberadamente ignora (nos estruturados a PRINCIPAL é distância
+     * fixa). Não age em INTERVALADO/TIRO/FARTLEK nem sobrescreve distância já válida.
+     */
+    private TreinoPlanejadoLlmDto garantirDistanciaContinuo(TreinoPlanejadoLlmDto treino, BigDecimal paceLimiar) {
+        if (treino.tipoTreino() == null || !TIPOS_CONTINUOS.contains(treino.tipoTreino())) return treino;
+        if (treino.distanciaKm() != null && treino.distanciaKm() > 0) return treino;
+        if (treino.etapas() == null || treino.etapas().isEmpty()) return treino;
+        double pace = paceLimiar != null ? paceLimiar.doubleValue() * FATOR_PACE_Z2 : PACE_Z2_DEFAULT_MIN_KM;
+        List<EtapaTreinoLlmDto> etapas = treino.etapas().stream().map(e -> {
+            if (e.duracaoMin() == null || e.duracaoMin() <= 0) return e;
+            if (e.distanciaKm() != null && e.distanciaKm() > 0) return e;
+            return new EtapaTreinoLlmDto(e.ordem(), e.tipoEtapa(), e.descricaoEtapa(),
+                    e.duracaoMin(), arredondar2(e.duracaoMin() / pace), e.fcAlvoEtapa(), e.repeticoes(), e.ritmoAlvo());
+        }).toList();
+        double total = somarDistancias(etapas);
+        if (total <= 0) return treino;
+        return new TreinoPlanejadoLlmDto(
+                treino.diaSemana(), treino.tipoTreino(), treino.fcAlvo(),
+                treino.tssPlanejado(), treino.intensidadePlanejada(), treino.percepcaoEsforcoEsperada(),
+                treino.justificativaIa(), treino.duracaoMin(), total, treino.ritmoAlvo(), etapas,
+                treino.descricao(), treino.zonaAlvo(), treino.provaId());
     }
 
     /**
