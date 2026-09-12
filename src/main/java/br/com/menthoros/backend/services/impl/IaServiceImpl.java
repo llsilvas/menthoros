@@ -694,10 +694,19 @@ public class IaServiceImpl implements IaService {
             gap = alvo - soma;
 
             // 2.3) Distribuir delta restante nos tiros e recuperações
+            //
+            // Tiro nunca encolhe (gap<0): 800m/400m/1000m etc. são distâncias redondas, escolhidas
+            // pela cinética de O2 — encolher o tiro para bater com o total declarado pelo LLM
+            // descaracteriza o estímulo prescrito (ver proposal fix-intervalado-tiro-shrink-
+            // normalizacao). A folga (RECUPERACAO) absorve a sobra; se não for suficiente,
+            // reconciliarDistanciaComEtapas corrige a distanciaKm do treino pela soma real depois.
+            // Crescer o tiro (gap>0, faltando volume) continua permitido — não quebra o estímulo.
             if (Math.abs(gap) > 0.05) {
-                var resultadoTiros = distribuirDeltaPorTipo(etapas, "INTERVALADO", gap, 0.4, 1.2);
-                etapas = resultadoTiros.etapas();
-                gap = resultadoTiros.restante();
+                if (gap > 0) {
+                    var resultadoTiros = distribuirDeltaPorTipo(etapas, "INTERVALADO", gap, 0.4, 1.2);
+                    etapas = resultadoTiros.etapas();
+                    gap = resultadoTiros.restante();
+                }
 
                 var resultadoRecs = distribuirDeltaPorTipo(etapas, "RECUPERACAO", gap, 0.2, 0.5);
                 etapas = resultadoRecs.etapas();
