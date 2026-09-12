@@ -44,6 +44,21 @@ class SessionCompositionResolverTest {
         }
 
         @Test
+        @DisplayName("gate de carga (§calibração): BUILD com targetTss < 220 não recebe sessão dura")
+        void buildSemanaLeveSemDura() {
+            List<SessionSlot> s = resolver.compose(req(TrainingPhase.BUILD, 156, 4));
+            assertThat(s.stream().anyMatch(x -> x.sessionType().equals("INTERVALADO")
+                    || x.sessionType().equals("TIRO") || x.sessionType().equals("TEMPO_RUN"))).isFalse();
+        }
+
+        @Test
+        @DisplayName("gate de carga: BUILD com targetTss >= 220 mantém a sessão dura")
+        void buildSemanaCheiaComDura() {
+            List<SessionSlot> s = resolver.compose(req(TrainingPhase.BUILD, 300, 4));
+            assertThat(s.stream().anyMatch(x -> x.sessionType().equals("INTERVALADO"))).isTrue();
+        }
+
+        @Test
         @DisplayName("RECOVERY: só aeróbico leve, sem chave e sem duras")
         void recovery() {
             List<SessionSlot> s = resolver.compose(req(TrainingPhase.RECOVERY, 120, 3));

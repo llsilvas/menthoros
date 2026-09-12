@@ -34,9 +34,11 @@ class SkeletonComplianceCheckerTest {
             WeekPlanSkeleton skeleton = skeleton(TrainingPhase.BUILD, 300.0, 270.0, 330.0);
             GeneratedPlanSnapshot plano = plano(sessao(0, "REGENERATIVO", 500, "Z1")); // muito acima da faixa
 
-            List<PlannerViolation> violacoes = checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty()));
-
-            assertThat(violacoes).anyMatch(v -> v.key() == PlannerViolationKey.TSS_FORA_DA_FAIXA);
+            // TSS_FORA_DA_FAIXA e soft (estagio 2) desde a calibracao 2026-09-11: nao entra no estagio 1.
+            assertThat(checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty())))
+                    .noneMatch(v -> v.key() == PlannerViolationKey.TSS_FORA_DA_FAIXA);
+            assertThat(checker.checkPostRedistribution(plano, skeleton, contexto(Optional.empty())))
+                    .anyMatch(v -> v.key() == PlannerViolationKey.TSS_FORA_DA_FAIXA);
         }
 
         @Test
@@ -48,7 +50,7 @@ class SkeletonComplianceCheckerTest {
                     sessao(3, "INTERVALADO", 90, "Z4"),
                     sessao(5, "LONGO", 110, "Z2"));
 
-            List<PlannerViolation> violacoes = checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty()));
+            List<PlannerViolation> violacoes = checker.checkPostRedistribution(plano, skeleton, contexto(Optional.empty()));
 
             assertThat(violacoes).noneMatch(v -> v.key() == PlannerViolationKey.TSS_FORA_DA_FAIXA);
         }
@@ -70,20 +72,48 @@ class SkeletonComplianceCheckerTest {
             WeekPlanSkeleton skeleton = skeleton(TrainingPhase.BUILD, 300.0, 270.0, 330.0);
             GeneratedPlanSnapshot plano = plano(sessao(5, "LONGO", 200, "Z2")); // > 40% de 300
 
-            List<PlannerViolation> violacoes = checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty()));
-
-            assertThat(violacoes).anyMatch(v -> v.key() == PlannerViolationKey.LONGO_ACIMA_TETO);
+            // LONGO_ACIMA_TETO e soft (estagio 2) desde a calibracao 2026-09-11: nao entra no estagio 1.
+            assertThat(checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty())))
+                    .noneMatch(v -> v.key() == PlannerViolationKey.LONGO_ACIMA_TETO);
+            assertThat(checker.checkPostRedistribution(plano, skeleton, contexto(Optional.empty())))
+                    .anyMatch(v -> v.key() == PlannerViolationKey.LONGO_ACIMA_TETO);
         }
 
         @Test
         @DisplayName("sessao INTERVALADO acima de 25% do alvo semanal gera EXCESSO_INTENSIDADE")
         void intervaladoExcessivoGeraViolacao() {
+            // teto = max(300 x 0.40, 60) = 120; EXCESSO_INTENSIDADE agora e check do estagio 2 (POST),
+            // nao mais do estagio 1 (calibracao 2026-09-11): soft/review, nunca 422 no retry.
             WeekPlanSkeleton skeleton = skeleton(TrainingPhase.BUILD, 300.0, 270.0, 330.0);
-            GeneratedPlanSnapshot plano = plano(sessao(2, "INTERVALADO", 120, "Z4")); // > 25% de 300
+            GeneratedPlanSnapshot plano = plano(sessao(2, "INTERVALADO", 140, "Z4")); // > 40% de 300
 
-            List<PlannerViolation> violacoes = checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty()));
+            List<PlannerViolation> violacoes = checker.checkPostRedistribution(plano, skeleton, contexto(Optional.empty()));
 
             assertThat(violacoes).anyMatch(v -> v.key() == PlannerViolationKey.EXCESSO_INTENSIDADE);
+        }
+
+        @Test
+        @DisplayName("EXCESSO_INTENSIDADE nao entra no estagio 1 (calibracao 2026-09-11): so no estagio 2")
+        void excessoIntensidadeNaoEntraNoEstagio1() {
+            WeekPlanSkeleton skeleton = skeleton(TrainingPhase.BUILD, 300.0, 270.0, 330.0);
+            GeneratedPlanSnapshot plano = plano(sessao(2, "INTERVALADO", 140, "Z4"));
+
+            List<PlannerViolation> pre = checker.checkPreRedistribution(plano, skeleton, contexto(Optional.empty()));
+
+            assertThat(pre).noneMatch(v -> v.key() == PlannerViolationKey.EXCESSO_INTENSIDADE);
+        }
+
+        @Test
+        @DisplayName("piso de 60 TSS: intervalado real em semana leve NAO viola (evita 422 espurio)")
+        void intervaladoRealEmSemanaLevePassa() {
+            // targetTss 120: sem piso, teto seria 120 x 0.40 = 48 e um intervalado real (60) reprovaria.
+            // Com o piso, teto = max(48, 60) = 60 → 60 nao excede 60.
+            WeekPlanSkeleton skeleton = skeleton(TrainingPhase.BUILD, 120.0, 108.0, 132.0);
+            GeneratedPlanSnapshot plano = plano(sessao(2, "INTERVALADO", 60, "Z4"));
+
+            List<PlannerViolation> violacoes = checker.checkPostRedistribution(plano, skeleton, contexto(Optional.empty()));
+
+            assertThat(violacoes).noneMatch(v -> v.key() == PlannerViolationKey.EXCESSO_INTENSIDADE);
         }
 
         @Test

@@ -21,7 +21,11 @@ import java.util.List;
 public class SkeletonComplianceChecker {
 
     private static final double TETO_LONGO_FRACAO = 0.40;
-    private static final double TETO_INTERVALADO_FRACAO = 0.25;
+    // Teto de uma sessao intensa: fracao do targetTss OU um piso absoluto — o que for maior. O piso
+    // (calibracao 2026-09-11) evita reprovar um intervalado real (~55-65 TSS) em semana de carga baixa,
+    // onde 0.30 x targetTss ficaria abaixo do custo minimo de um intervalado estruturado.
+    private static final double TETO_INTERVALADO_FRACAO = 0.40;
+    private static final double TETO_INTERVALADO_PISO = 60.0;
     private static final long JANELA_PESADA_MIN_DIAS = 2;
     private static final long JANELA_PESADA_MAX_DIAS = 3;
     private static final List<String> TIPOS_INTENSOS = List.of("INTERVALADO", "TEMPO_RUN", "INTENSO");
@@ -37,9 +41,11 @@ public class SkeletonComplianceChecker {
         List<PlannerViolation> violacoes = new ArrayList<>();
         checarFase(plano, skeleton, violacoes);
         checarSessionCount(plano, skeleton, violacoes);
-        checarTssNaFaixa(plano, skeleton, violacoes);
-        checarTetoDeLongo(plano, skeleton, violacoes);
-        checarExcessoDeIntensidade(plano, skeleton, violacoes);
+        // Carga/distribuicao (TSS_FORA_DA_FAIXA, LONGO_ACIMA_TETO, EXCESSO_INTENSIDADE) NAO entram no
+        // estagio 1 (calibracao 2026-09-11): sao divergencias revisaveis contra estimativas do skeleton
+        // (ex.: targetTss = ctl x 7, fraco p/ atleta sem base), nao erros estruturais que um retry
+        // corrige — e como estimativa vira trava dura, o estagio 1 devolvia 422 espurio. Vao para o
+        // estagio 2 (checkPost) -> soft -> FAILED + requiresCoachReview, sem bloquear a geracao.
         checarSessaoPesadaPertoDaProva(plano, context, violacoes);
         checarConstraintsDuras(plano, context, violacoes);
         return violacoes;
@@ -54,6 +60,11 @@ public class SkeletonComplianceChecker {
                                                             ComplianceContext context) {
         List<PlannerViolation> violacoes = new ArrayList<>();
         checarDiasPermitidos(treinosRedistribuidos, context, violacoes);
+        // Carga/distribuicao — soft, estagio 2 (ver checkPre): divergencia contra estimativa do skeleton
+        // vira FAILED + requiresCoachReview, nunca 422.
+        checarTssNaFaixa(treinosRedistribuidos, skeleton, violacoes);
+        checarTetoDeLongo(treinosRedistribuidos, skeleton, violacoes);
+        checarExcessoDeIntensidade(treinosRedistribuidos, skeleton, violacoes);
         checarSessaoPesadaPertoDaProva(treinosRedistribuidos, context, violacoes);
         checarTaperPreservado(treinosRedistribuidos, skeleton, violacoes);
         return violacoes;
@@ -97,7 +108,7 @@ public class SkeletonComplianceChecker {
     }
 
     private void checarExcessoDeIntensidade(GeneratedPlanSnapshot plano, WeekPlanSkeleton skeleton, List<PlannerViolation> violacoes) {
-        double teto = skeleton.loadTarget().targetTss() * TETO_INTERVALADO_FRACAO;
+        double teto = Math.max(skeleton.loadTarget().targetTss() * TETO_INTERVALADO_FRACAO, TETO_INTERVALADO_PISO);
         plano.sessoes().stream()
                 .filter(s -> ehTipoIntenso(s.tipoTreino()))
                 .filter(s -> s.tssPlanejado() != null && s.tssPlanejado() > teto)

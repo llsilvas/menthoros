@@ -24,6 +24,10 @@ public final class SessionCompositionResolver {
     /** Carga (TSS) de 1h de treino FACIL (fatorImpacto 1.0). Calibravel via shadow. */
     public static final double TAXA_BASE = 50.0;
 
+    // Abaixo deste targetTss semanal a semana e leve demais para uma sessao dura (calibracao
+    // 2026-09-11): so aerobico. Mantem coerencia com o teto de intensidade do SkeletonComplianceChecker.
+    private static final double LIMIAR_SESSAO_DURA_TSS = 220.0;
+
     /** Tipos de "sessao dura" (numerador da polarizacao). PROVA e excluida da razao. */
     private static final EnumSet<TipoTreino> DURAS =
             EnumSet.of(TipoTreino.INTERVALADO, TipoTreino.TIRO, TipoTreino.TEMPO_RUN, TipoTreino.SUBIDA, TipoTreino.FARTLEK);
@@ -113,7 +117,12 @@ public final class SessionCompositionResolver {
         List<TipoTreino> prioridade = prioridadeElegivel(spec, req);
 
         // Escolhe a contagem de duras por proximidade da faixa de polarizacao (soft; empate -> menos duras).
-        int maxDuras = Math.min(spec.tetoDuras(), contarDurasDisponiveis(prioridade, chave));
+        // Gate de carga (calibracao 2026-09-11): semana leve (targetTss < LIMIAR) nao recebe sessao dura —
+        // um intervalado real (~55-65 TSS) dominaria uma semana pequena e seria reprovado pelo compliance.
+        // PROVA (RACE_WEEK) nao passa por aqui: e a chave, sempre incluida.
+        int maxDuras = req.targetTss() < LIMIAR_SESSAO_DURA_TSS
+                ? 0
+                : Math.min(spec.tetoDuras(), contarDurasDisponiveis(prioridade, chave));
         int melhorDuras = 0;
         double melhorDist = Double.MAX_VALUE;
         for (int h = 0; h <= maxDuras; h++) {
